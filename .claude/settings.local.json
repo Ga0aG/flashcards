@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(flutter create:*)",
+      "Bash(export PATH=\"$PATH:/home/zhuojun/software/flutter/bin\")",
+      "Bash(flutter --version)",
+      "Bash(flutter pub:*)",
+      "Bash(export PATH=\"$PATH:$HOME/software/flutter/bin\")",
+      "Bash(export PUB_HOSTED_URL=https://pub.flutter-io.cn)",
+      "Bash(export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn)",
+      "Bash(curl -L https://github.com/tekartik/sqflite/raw/master/packages_web/sqflite_common_ffi_web/web/sqflite_sw.js -o /home/zhuojun/workspace/apps/flashcards/web/sqflite_sw.js)"
+    ]
+  }
+}

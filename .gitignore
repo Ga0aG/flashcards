@@ -1,0 +1,41 @@
+# Flutter/Dart build outputs
+build/
+.dart_tool/
+
+# Flutter specific
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+
+# Pub cache
+.pub-cache/
+.pub/
+
+# Android
+android/local.properties
+android/.gradle/
+android/key.properties
+android/app/google-services.json
+
+# iOS
+ios/Flutter/flutter_export_environment.sh
+ios/Pods/
+ios/*.xcworkspace
+
+# macOS
+macos/Pods/
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+
+# Coverage
+coverage/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Claude Code local settings (keep CLAUDE.md but ignore local settings)
+.claude/settings.local.json
