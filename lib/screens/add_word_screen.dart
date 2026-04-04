@@ -31,16 +31,32 @@ class _AddWordScreenState extends State<AddWordScreen> {
 
     setState(() => _isGenerating = true);
 
+    final mainLang = await _dbService.getSetting('main_language') ?? 'zh-CN';
+    final sourceLang = widget.wordBook.language;
+
     final results = await Future.wait([
-      _translationService.translate(word, 'zh-CN'),
-      _translationService.getExampleSentence(word),
+      _translationService.translate(word, sourceLang, mainLang),
+      _translationService.getExampleSentence(word, sourceLang),
     ]);
 
     final translation = results[0];
     final example = results[1];
 
+    // Translate the example sentence into the user's main language
+    String? exampleTranslation;
+    if (example != null) {
+      exampleTranslation = await _translationService.translate(example, sourceLang, mainLang);
+    }
+
+    print('[Generate] translation: $translation');
+    print('[Generate] example: $example');
+
     if (translation != null) _backController.text = translation;
-    if (example != null) _notesController.text = '例句: $example';
+    if (example != null) {
+      _notesController.text = exampleTranslation != null
+          ? '$example\n$exampleTranslation'
+          : example;
+    }
 
     setState(() => _isGenerating = false);
 

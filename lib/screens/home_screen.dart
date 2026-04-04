@@ -6,6 +6,18 @@ import 'wordbook_screen.dart';
 import 'training_screen.dart';
 import 'settings_screen.dart';
 
+// Supported languages: code -> (flag emoji, display name)
+const _languages = {
+  'ja': ('🇯🇵', '日语'),
+  'en': ('🇺🇸', '英语'),
+  'zh': ('🇨🇳', '汉语'),
+  'it': ('🇮🇹', '意大利语'),
+  'es': ('🇪🇸', '西班牙语'),
+};
+
+String langFlag(String code) => _languages[code]?.$1 ?? '🌐';
+String langName(String code) => _languages[code]?.$2 ?? code;
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -26,7 +38,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadWordBooks() async {
     try {
       final books = await _dbService.getAllWordBooks();
-      print('Loaded ${books.length} wordbooks');
       setState(() => _wordbooks = books);
     } catch (e) {
       print('Error loading wordbooks: $e');
@@ -34,23 +45,47 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _createWordBook() async {
-    final controller = TextEditingController();
+    String? selectedLang;
+
     final result = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('创建单词本'),
-        content: TextField(controller: controller, decoration: const InputDecoration(hintText: '单词本名称')),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-          TextButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('创建')),
-        ],
-      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('选择学习语言'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: _languages.entries.map((entry) {
+                final code = entry.key;
+                final flag = entry.value.$1;
+                final name = entry.value.$2;
+                return RadioListTile<String>(
+                  value: code,
+                  groupValue: selectedLang,
+                  title: Text('$flag $name'),
+                  onChanged: (v) => setDialogState(() => selectedLang = v),
+                );
+              }).toList(),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: selectedLang == null ? null : () => Navigator.pop(context, selectedLang),
+                child: const Text('创建'),
+              ),
+            ],
+          ),
+        );
+      },
     );
-    if (result != null && result.isNotEmpty) {
+
+    if (result != null) {
       try {
         final now = DateTime.now().millisecondsSinceEpoch;
-        final newBook = WordBook(id: const Uuid().v4(), name: result, createdAt: now, updatedAt: now);
-        print('Creating wordbook: ${newBook.name}');
+        final newBook = WordBook(id: const Uuid().v4(), language: result, createdAt: now, updatedAt: now);
         await _dbService.insertWordBook(newBook);
         await _loadWordBooks();
       } catch (e) {
@@ -76,7 +111,8 @@ class _HomeScreenState extends State<HomeScreen> {
         itemBuilder: (context, index) {
           final book = _wordbooks[index];
           return ListTile(
-            title: Text(book.name),
+            leading: Text(langFlag(book.language), style: const TextStyle(fontSize: 32)),
+            title: Text(langName(book.language)),
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => WordBookScreen(wordBook: book))),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
@@ -92,7 +128,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       context: context,
                       builder: (context) => AlertDialog(
                         title: const Text('确认删除'),
-                        content: Text('确定要删除单词本"${book.name}"吗？\n此操作会删除其中所有单词。'),
+                        content: Text('确定要删除${langFlag(book.language)} ${langName(book.language)}单词本吗？\n此操作会删除其中所有单词。'),
                         actions: [
                           TextButton(
                             onPressed: () => Navigator.pop(context, false),

@@ -5,6 +5,62 @@ import '../services/database_service.dart';
 import 'add_word_screen.dart';
 import 'edit_word_screen.dart';
 import 'training_screen.dart';
+import 'home_screen.dart' show langFlag, langName;
+
+// memoryLevel 值: 1,2,4,7,15,30 → 索引 0-5
+int _memoryLevelIndex(int level) {
+  const levels = [1, 2, 4, 7, 15, 30];
+  final idx = levels.indexOf(level);
+  return idx == -1 ? 0 : idx;
+}
+
+Widget _memoryClover(int memoryLevel) {
+  final lit = _memoryLevelIndex(memoryLevel); // 0=全灰, 1=亮1片, ...5=全亮
+  const litColor = Color(0xFF4CAF50);
+  const dimColor = Color(0xFFBDBDBD);
+
+  // 5片叶子，顺时针排列（上、右上、右下、左下、左上）
+  const positions = [
+    Offset(10, 0),   // 上
+    Offset(20, 8),   // 右上
+    Offset(16, 20),  // 右下
+    Offset(4, 20),   // 左下
+    Offset(0, 8),    // 左上
+  ];
+
+  return SizedBox(
+    width: 28,
+    height: 28,
+    child: CustomPaint(
+      painter: _CloverPainter(litCount: lit, litColor: litColor, dimColor: dimColor, positions: positions),
+    ),
+  );
+}
+
+class _CloverPainter extends CustomPainter {
+  final int litCount;
+  final Color litColor;
+  final Color dimColor;
+  final List<Offset> positions;
+
+  _CloverPainter({required this.litCount, required this.litColor, required this.dimColor, required this.positions});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scale = size.width / 28;
+    for (int i = 0; i < 5; i++) {
+      final paint = Paint()..color = i < litCount ? litColor : dimColor;
+      final center = Offset(positions[i].dx * scale + 4 * scale, positions[i].dy * scale + 4 * scale);
+      canvas.drawCircle(center, 4 * scale, paint);
+    }
+    // 茎
+    final stemPaint = Paint()..color = dimColor..strokeWidth = 1.5 * scale..style = PaintingStyle.stroke;
+    canvas.drawLine(Offset(14 * scale, 20 * scale), Offset(14 * scale, 26 * scale), stemPaint);
+  }
+
+  @override
+  bool shouldRepaint(_CloverPainter old) => old.litCount != litCount;
+}
 
 class WordBookScreen extends StatefulWidget {
   final WordBook wordBook;
@@ -33,7 +89,7 @@ class _WordBookScreenState extends State<WordBookScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.wordBook.name),
+        title: Text('${langFlag(widget.wordBook.language)} ${langName(widget.wordBook.language)}'),
         actions: [
           IconButton(
             icon: const Icon(Icons.psychology),
@@ -94,6 +150,8 @@ class _WordBookScreenState extends State<WordBookScreen> {
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      _memoryClover(word.memoryLevel),
+                      const SizedBox(width: 4),
                       IconButton(
                         icon: const Icon(Icons.edit),
                         onPressed: () async {
