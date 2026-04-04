@@ -18,9 +18,19 @@ class _AddWordScreenState extends State<AddWordScreen> {
   final _translationService = TranslationService();
   final _frontController = TextEditingController();
   final _backController = TextEditingController();
-  final _notesController = TextEditingController();
   final _tagsController = TextEditingController();
   bool _isGenerating = false;
+
+  // 注释用状态变量 + UniqueKey 驱动，绕过 Flutter web 外部修改 controller 不刷新的问题
+  String _notes = '';
+  Key _notesFieldKey = UniqueKey();
+
+  void _setNotes(String value) {
+    setState(() {
+      _notes = value;
+      _notesFieldKey = UniqueKey();
+    });
+  }
 
   Future<void> _generateTranslation() async {
     final word = _frontController.text.trim();
@@ -34,35 +44,38 @@ class _AddWordScreenState extends State<AddWordScreen> {
     final mainLang = await _dbService.getSetting('main_language') ?? 'zh-CN';
     final sourceLang = widget.wordBook.language;
 
-    final results = await Future.wait([
-      _translationService.translate(word, sourceLang, mainLang),
-      _translationService.getExampleSentence(word, sourceLang),
-    ]);
+    // 单词翻译和例句获取并行
+    final translationFuture = _translationService
+        .translate(word, sourceLang, mainLang)
+        .catchError((e) => null);
+    final exampleFuture = _translationService
+        .getExampleSentence(word, sourceLang)
+        .catchError((e) => null);
 
-    final translation = results[0];
-    final example = results[1];
-
-    // Translate the example sentence into the user's main language
-    String? exampleTranslation;
-    if (example != null) {
-      exampleTranslation = await _translationService.translate(example, sourceLang, mainLang);
+    // 单词翻译完成立刻更新译文框
+    final translation = await translationFuture;
+    if (mounted && translation != null) {
+      _backController.value = TextEditingValue(text: translation);
     }
 
-    print('[Generate] translation: $translation');
-    print('[Generate] example: $example');
+    // 等例句
+    final example = await exampleFuture;
+    if (!mounted) return;
 
-    if (translation != null) _backController.text = translation;
     if (example != null) {
-      _notesController.text = exampleTranslation != null
+      // 翻译例句
+      final exampleTranslation = await _translationService
+          .translate(example, sourceLang, mainLang)
+          .catchError((e) => null);
+      if (!mounted) return;
+
+      final notesText = (exampleTranslation != null && exampleTranslation.isNotEmpty)
           ? '$example\n$exampleTranslation'
           : example;
+      _setNotes(notesText);
     }
 
-    setState(() => _isGenerating = false);
-
-    if (translation == null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('自动翻译失败，请手动输入')));
-    }
+    if (mounted) setState(() => _isGenerating = false);
   }
 
   Future<void> _saveWord() async {
@@ -77,7 +90,7 @@ class _AddWordScreenState extends State<AddWordScreen> {
       wordBookId: widget.wordBook.id,
       front: _frontController.text,
       back: _backController.text,
-      notes: _notesController.text,
+      notes: _notes,
       tags: _tagsController.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
       pronunciation: '',
       memoryLevel: 1,
@@ -116,7 +129,13 @@ class _AddWordScreenState extends State<AddWordScreen> {
                 ],
               ),
               TextField(controller: _backController, decoration: const InputDecoration(labelText: '译文（背面）')),
-              TextField(controller: _notesController, decoration: const InputDecoration(labelText: '注释/例句')),
+              TextFormField(
+                key: _notesFieldKey,
+                initialValue: _notes,
+                onChanged: (v) => _notes = v,
+                decoration: const InputDecoration(labelText: '注释/例句'),
+                maxLines: null,
+              ),
               TextField(controller: _tagsController, decoration: const InputDecoration(labelText: '标签(逗号分隔)')),
               const SizedBox(height: 20),
               ElevatedButton(onPressed: _saveWord, child: const Text('保存')),

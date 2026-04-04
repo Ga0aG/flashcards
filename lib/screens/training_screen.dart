@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/wordbook.dart';
 import '../models/word.dart';
@@ -129,8 +130,8 @@ class _TrainingScreenState extends State<TrainingScreen>
       _loaded = true;
     });
 
-    // 语音模式下自动播放第一个单词
-    if (_voiceMode && _queue.isNotEmpty) {
+    // 语音模式下自动播放（web 端受浏览器限制，需用户手动点喇叭）
+    if (_voiceMode && _queue.isNotEmpty && !kIsWeb) {
       _speak(_queue[0].front);
     }
   }
@@ -173,7 +174,7 @@ class _TrainingScreenState extends State<TrainingScreen>
       }
     });
 
-    if (_voiceMode && _queue.isNotEmpty) {
+    if (_voiceMode && _queue.isNotEmpty && !kIsWeb) {
       _speak(_currentWord.front);
     }
   }
@@ -192,7 +193,7 @@ class _TrainingScreenState extends State<TrainingScreen>
       }
     });
 
-    if (_voiceMode && _queue.isNotEmpty) {
+    if (_voiceMode && _queue.isNotEmpty && !kIsWeb) {
       _speak(_currentWord.front);
     }
   }
@@ -338,54 +339,62 @@ class _TrainingScreenState extends State<TrainingScreen>
   }
 
   Widget _buildCard(Word word) {
-    return Card(
-      elevation: 8,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Container(
-        width: 320,
-        height: 240,
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // 语音模式：隐藏单词，显示喇叭；单词模式：显示单词
-            if (_voiceMode)
-              GestureDetector(
-                onTap: () {
-                  _speak(word.front);
-                },
-                behavior: HitTestBehavior.opaque,
-                child: const Icon(Icons.volume_up, size: 64, color: Colors.blueAccent),
-              )
-            else
-              Text(
-                word.front,
-                style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
-              ),
-            if (_showStep >= 1 && word.notes.isNotEmpty) ...[
-              const Divider(height: 24),
-              Text(
-                word.notes,
-                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                textAlign: TextAlign.center,
-              ),
-            ],
-            if (_showStep >= 2) ...[
-              const SizedBox(height: 8),
-              Text(
-                word.back,
-                style: const TextStyle(
-                  fontSize: 22,
-                  color: Colors.blue,
-                  fontWeight: FontWeight.w500,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ],
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Card(
+          elevation: 8,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Container(
+            width: 320,
+            height: 240,
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (_voiceMode)
+                  const Text(
+                    '我是谁？',
+                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.grey),
+                  )
+                else
+                  Text(
+                    word.front,
+                    style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.center,
+                  ),
+                if (_showStep >= 1 && word.notes.isNotEmpty) ...[
+                  const Divider(height: 24),
+                  Text(
+                    word.notes,
+                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+                if (_showStep >= 2) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    word.back,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      color: Colors.blue,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
-      ),
+        if (_voiceMode) ...[
+          const SizedBox(height: 16),
+          GestureDetector(
+            onTap: () => _speak(word.front),
+            child: const Icon(Icons.volume_up, size: 56, color: Colors.blueAccent),
+          ),
+        ],
+      ],
     );
   }
 }

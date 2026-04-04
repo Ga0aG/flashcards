@@ -84,12 +84,20 @@ class DatabaseService {
 
   Future<void> promoteWordMemoryLevel(String wordId) async {
     await _init();
+    final now = DateTime.now();
     List<dynamic> words = _storage.getItem('words') ?? [];
     for (var w in words) {
       if (w['id'] == wordId) {
-        final nextLevel = SpacedRepetitionService.nextLevel(w['memory_level'] as int);
-        w['memory_level'] = nextLevel;
-        w['last_correct_at'] = DateTime.now().millisecondsSinceEpoch;
+        final lastCorrectAt = w['last_correct_at'] as int? ?? 0;
+        final lastDay = DateTime.fromMillisecondsSinceEpoch(lastCorrectAt);
+        final sameDay = lastCorrectAt > 0 &&
+            lastDay.year == now.year &&
+            lastDay.month == now.month &&
+            lastDay.day == now.day;
+        if (!sameDay) {
+          w['memory_level'] = SpacedRepetitionService.nextLevel(w['memory_level'] as int);
+        }
+        w['last_correct_at'] = now.millisecondsSinceEpoch;
         break;
       }
     }
