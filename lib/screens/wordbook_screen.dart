@@ -5,6 +5,7 @@ import '../services/database_service.dart';
 import 'add_word_screen.dart';
 import 'edit_word_screen.dart';
 import 'training_screen.dart';
+import 'tag_management_screen.dart';
 import 'home_screen.dart' show langFlag, langName;
 
 // memoryLevel 值: 1,2,4,7,15,30 → 索引 0-5
@@ -73,6 +74,8 @@ class WordBookScreen extends StatefulWidget {
 class _WordBookScreenState extends State<WordBookScreen> {
   final _dbService = DatabaseService();
   List<Word> _words = [];
+  List<String> _allTags = [];
+  String? _selectedTag; // null = 不过滤
 
   @override
   void initState() {
@@ -82,11 +85,25 @@ class _WordBookScreenState extends State<WordBookScreen> {
 
   Future<void> _loadWords() async {
     final words = await _dbService.getWordsByBookId(widget.wordBook.id);
-    setState(() => _words = words);
+    final tags = await _dbService.getAllTags(widget.wordBook.id);
+    setState(() {
+      _words = words;
+      _allTags = tags;
+      // 如果当前筛选标签已不存在，则重置
+      if (_selectedTag != null && !tags.contains(_selectedTag)) {
+        _selectedTag = null;
+      }
+    });
+  }
+
+  List<Word> get _filteredWords {
+    if (_selectedTag == null) return _words;
+    return _words.where((w) => w.tags.contains(_selectedTag)).toList();
   }
 
   @override
   Widget build(BuildContext context) {
+    final displayWords = _filteredWords;
     return Scaffold(
       appBar: AppBar(
         title: Text('${langFlag(widget.wordBook.language)} ${langName(widget.wordBook.language)}'),
@@ -99,6 +116,19 @@ class _WordBookScreenState extends State<WordBookScreen> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => TrainingScreen(wordBook: widget.wordBook),
+                ),
+              );
+              _loadWords();
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.label),
+            tooltip: '标签管理',
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => TagManagementScreen(wordBook: widget.wordBook),
                 ),
               );
               _loadWords();
@@ -119,83 +149,114 @@ class _WordBookScreenState extends State<WordBookScreen> {
           ),
         ],
       ),
-      body: _words.isEmpty
-          ? const Center(child: Text('还没有单词，点击右上角 + 添加'))
-          : ListView.builder(
-              itemCount: _words.length,
-              itemBuilder: (context, index) {
-                final word = _words[index];
-                return ListTile(
-                  title: Text(word.front),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(word.back),
-                      if (word.tags.isNotEmpty)
-                        Wrap(
-                          spacing: 4,
-                          children: word.tags
-                              .map(
-                                (tag) => Chip(
-                                  label: Text(tag, style: const TextStyle(fontSize: 11)),
-                                  padding: EdgeInsets.zero,
-                                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                ),
-                              )
-                              .toList(),
-                        ),
-                    ],
-                  ),
-                  isThreeLine: word.tags.isNotEmpty,
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _memoryClover(word.memoryLevel),
-                      const SizedBox(width: 4),
-                      IconButton(
-                        icon: const Icon(Icons.edit),
-                        onPressed: () async {
-                          await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => EditWordScreen(word: word),
-                            ),
-                          );
-                          _loadWords();
-                        },
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete),
-                        onPressed: () async {
-                          final confirm = await showDialog<bool>(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              title: const Text('确认删除'),
-                              content: Text('确定要删除"${word.front}"吗？'),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context, false),
-                                  child: const Text('取消'),
-                                ),
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context, true),
-                                  child: const Text('删除'),
-                                ),
-                              ],
-                            ),
-                          );
-                          if (confirm == true) {
-                            await _dbService.deleteWord(word.id);
-                            _loadWords();
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                );
-              },
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                const Text('筛选标签：'),
+                const SizedBox(width: 8),
+                DropdownButton<String?>(
+                  value: _selectedTag,
+                  hint: const Text('无'),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('无'),
+                    ),
+                    ..._allTags.map((tag) => DropdownMenuItem<String?>(
+                          value: tag,
+                          child: Text(tag),
+                        )),
+                  ],
+                  onChanged: (value) => setState(() => _selectedTag = value),
+                ),
+              ],
             ),
+          ),
+          Expanded(
+            child: displayWords.isEmpty
+                ? Center(
+                    child: Text(_words.isEmpty ? '还没有单词，点击右上角 + 添加' : '该标签下没有单词'),
+                  )
+                : ListView.builder(
+                    itemCount: displayWords.length,
+                    itemBuilder: (context, index) {
+                      final word = displayWords[index];
+                      return ListTile(
+                        title: Text(word.front),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(word.back),
+                            if (word.tags.isNotEmpty)
+                              Wrap(
+                                spacing: 4,
+                                children: word.tags
+                                    .map(
+                                      (tag) => Chip(
+                                        label: Text(tag, style: const TextStyle(fontSize: 11)),
+                                        padding: EdgeInsets.zero,
+                                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                    )
+                                    .toList(),
+                              ),
+                          ],
+                        ),
+                        isThreeLine: word.tags.isNotEmpty,
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _memoryClover(word.memoryLevel),
+                            const SizedBox(width: 4),
+                            IconButton(
+                              icon: const Icon(Icons.edit),
+                              onPressed: () async {
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => EditWordScreen(word: word),
+                                  ),
+                                );
+                                _loadWords();
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete),
+                              onPressed: () async {
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title: const Text('确认删除'),
+                                    content: Text('确定要删除"${word.front}"吗？'),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context, false),
+                                        child: const Text('取消'),
+                                      ),
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context, true),
+                                        child: const Text('删除'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (confirm == true) {
+                                  await _dbService.deleteWord(word.id);
+                                  _loadWords();
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }
-

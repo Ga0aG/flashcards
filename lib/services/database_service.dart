@@ -123,6 +123,57 @@ class DatabaseService {
     _storage.setItem('words', words);
   }
 
+  // Tag operations
+  Future<List<String>> getAllTags(String bookId) async {
+    await _init();
+    List<dynamic> words = _storage.getItem('words') ?? [];
+    final tags = <String>{};
+    for (var w in words) {
+      if (w['wordbook_id'] == bookId) {
+        final t = w['tags'];
+        final tagStr = t is String ? t : '';
+        for (var tag in tagStr.split(',')) {
+          final trimmed = tag.trim();
+          if (trimmed.isNotEmpty) tags.add(trimmed);
+        }
+      }
+    }
+    final result = tags.toList()..sort();
+    return result;
+  }
+
+  Future<void> renameTag(String bookId, String oldTag, String newTag) async {
+    await _init();
+    List<dynamic> words = _storage.getItem('words') ?? [];
+    for (var w in words) {
+      if (w['wordbook_id'] == bookId) {
+        final t = w['tags'];
+        final tagStr = t is String ? t : '';
+        final tagList = tagStr.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+        final idx = tagList.indexOf(oldTag);
+        if (idx != -1) {
+          tagList[idx] = newTag;
+          w['tags'] = tagList.join(',');
+        }
+      }
+    }
+    _storage.setItem('words', words);
+  }
+
+  Future<void> deleteTag(String bookId, String tag) async {
+    await _init();
+    List<dynamic> words = _storage.getItem('words') ?? [];
+    for (var w in words) {
+      if (w['wordbook_id'] == bookId) {
+        final t = w['tags'];
+        final tagStr = t is String ? t : '';
+        final tagList = tagStr.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty && e != tag).toList();
+        w['tags'] = tagList.join(',');
+      }
+    }
+    _storage.setItem('words', words);
+  }
+
   // Settings
   Future<String?> getSetting(String key) async {
     await _init();
