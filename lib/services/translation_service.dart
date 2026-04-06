@@ -117,4 +117,58 @@ class TranslationService {
     }
     return null;
   }
+
+  /// Returns pronunciation string for [word] in [sourceLang].
+  /// Japanese → hiragana (Jotoba API).
+  /// English → IPA phonetic (dictionaryapi.dev).
+  /// Others → null.
+  Future<String?> getPronunciation(String word, String sourceLang) async {
+    try {
+      final lang = sourceLang.split('-').first;
+      if (lang == 'ja') return await _getJapanesePronunciation(word);
+      if (lang == 'en') return await _getEnglishPronunciation(word);
+    } catch (e) {
+      print('[TranslationService.getPronunciation] error: $e');
+    }
+    return null;
+  }
+
+  /// Fetches hiragana reading from Jotoba.
+  Future<String?> _getJapanesePronunciation(String word) async {
+    final uri = Uri.parse('https://jotoba.de/api/search/words');
+    final response = await http
+        .post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({'query': word, 'language': 'Japanese', 'no_english': false}),
+        )
+        .timeout(_timeout);
+    if (response.statusCode != 200) return null;
+    final data = json.decode(response.body);
+    final words = data['words'] as List?;
+    if (words == null || words.isEmpty) return null;
+    // 取第一个词条的第一个读音
+    final reading = words.first['reading'] as Map?;
+    if (reading == null) return null;
+    final kana = reading['kana'] as String?;
+    return kana?.isNotEmpty == true ? kana : null;
+  }
+
+  /// Fetches IPA phonetic from dictionaryapi.dev.
+  Future<String?> _getEnglishPronunciation(String word) async {
+    final uri = Uri.parse(
+        'https://api.dictionaryapi.dev/api/v2/entries/en/${Uri.encodeComponent(word)}');
+    final response = await http.get(uri).timeout(_timeout);
+    if (response.statusCode != 200) return null;
+    final data = json.decode(response.body) as List?;
+    if (data == null || data.isEmpty) return null;
+    final phonetics = data.first['phonetics'] as List?;
+    if (phonetics == null || phonetics.isEmpty) return null;
+    // 找第一个有 text 的音标
+    for (final p in phonetics) {
+      final text = p['text'] as String?;
+      if (text != null && text.isNotEmpty) return text;
+    }
+    return null;
+  }
 }

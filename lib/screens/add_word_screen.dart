@@ -23,6 +23,9 @@ class _AddWordScreenState extends State<AddWordScreen> {
   String _notes = '';
   Key _notesFieldKey = UniqueKey();
 
+  String _pronunciation = '';
+  Key _pronunciationFieldKey = UniqueKey();
+
   List<String> _selectedTags = [];
   List<String> _availableTags = [];
 
@@ -41,6 +44,13 @@ class _AddWordScreenState extends State<AddWordScreen> {
     setState(() {
       _notes = value;
       _notesFieldKey = UniqueKey();
+    });
+  }
+
+  void _setPronunciation(String value) {
+    setState(() {
+      _pronunciation = value;
+      _pronunciationFieldKey = UniqueKey();
     });
   }
 
@@ -132,10 +142,18 @@ class _AddWordScreenState extends State<AddWordScreen> {
     final exampleFuture = _translationService
         .getExampleSentence(word, sourceLang)
         .catchError((e) => null);
+    final pronunciationFuture = _translationService
+        .getPronunciation(word, sourceLang)
+        .catchError((e) => null);
 
     final translation = await translationFuture;
     if (mounted && translation != null) {
       _backController.value = TextEditingValue(text: translation);
+    }
+
+    final pronunciation = await pronunciationFuture;
+    if (mounted && pronunciation != null) {
+      _setPronunciation(pronunciation);
     }
 
     final example = await exampleFuture;
@@ -170,7 +188,7 @@ class _AddWordScreenState extends State<AddWordScreen> {
       back: _backController.text,
       notes: _notes,
       tags: _selectedTags,
-      pronunciation: '',
+      pronunciation: _pronunciation,
       memoryLevel: 1,
       lastCorrectAt: 0,
       createdAt: now,
@@ -214,6 +232,12 @@ class _AddWordScreenState extends State<AddWordScreen> {
               onChanged: (v) => _notes = v,
               decoration: const InputDecoration(labelText: '注释/例句'),
               maxLines: null,
+            ),
+            TextFormField(
+              key: _pronunciationFieldKey,
+              initialValue: _pronunciation,
+              onChanged: (v) => _pronunciation = v,
+              decoration: const InputDecoration(labelText: '读音'),
             ),
             const SizedBox(height: 16),
             // 标签区域

@@ -194,7 +194,22 @@ class _WordBookScreenState extends State<WordBookScreen> {
                       final word = displayWords[index];
                       return ListTile(
                         title: Text(word.front),
-                        subtitle: Text(word.back),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (word.pronunciation.isNotEmpty)
+                              Text(
+                                word.pronunciation,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[500],
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            Text(word.back),
+                          ],
+                        ),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [

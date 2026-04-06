@@ -15,6 +15,7 @@ class _EditWordScreenState extends State<EditWordScreen> {
   late TextEditingController _frontController;
   late TextEditingController _backController;
   late TextEditingController _notesController;
+  late TextEditingController _pronunciationController;
 
   List<String> _selectedTags = [];
   List<String> _availableTags = [];
@@ -25,6 +26,7 @@ class _EditWordScreenState extends State<EditWordScreen> {
     _frontController = TextEditingController(text: widget.word.front);
     _backController = TextEditingController(text: widget.word.back);
     _notesController = TextEditingController(text: widget.word.notes);
+    _pronunciationController = TextEditingController(text: widget.word.pronunciation);
     _selectedTags = List<String>.from(widget.word.tags);
     _loadTags();
   }
@@ -117,7 +119,7 @@ class _EditWordScreenState extends State<EditWordScreen> {
       back: _backController.text,
       notes: _notesController.text,
       tags: _selectedTags,
-      pronunciation: widget.word.pronunciation,
+      pronunciation: _pronunciationController.text,
       memoryLevel: widget.word.memoryLevel,
       lastCorrectAt: widget.word.lastCorrectAt,
       createdAt: widget.word.createdAt,
@@ -142,6 +144,10 @@ class _EditWordScreenState extends State<EditWordScreen> {
               controller: _notesController,
               decoration: const InputDecoration(labelText: '注释/例句'),
               maxLines: null,
+            ),
+            TextField(
+              controller: _pronunciationController,
+              decoration: const InputDecoration(labelText: '读音'),
             ),
             const SizedBox(height: 16),
             InkWell(
