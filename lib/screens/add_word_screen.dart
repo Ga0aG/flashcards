@@ -180,6 +180,26 @@ class _AddWordScreenState extends State<AddWordScreen> {
       return;
     }
 
+    // 验重：检查同一单词本中是否已有相同正面
+    final existing = await _dbService.getWordsByBookId(widget.wordBook.id);
+    final duplicate = existing.any(
+      (w) => w.front.trim().toLowerCase() == _frontController.text.trim().toLowerCase(),
+    );
+    if (duplicate && mounted) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('单词已存在'),
+          content: Text('「${_frontController.text.trim()}」在本单词本中已存在，是否仍要添加？'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+            TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('仍然添加')),
+          ],
+        ),
+      );
+      if (proceed != true) return;
+    }
+
     final now = DateTime.now().millisecondsSinceEpoch;
     final word = Word(
       id: const Uuid().v4(),

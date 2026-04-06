@@ -78,11 +78,20 @@ class _WordBookScreenState extends State<WordBookScreen> {
   List<Word> _words = [];
   List<String> _allTags = [];
   String? _selectedTag; // null = 不过滤
+  bool _searching = false;
+  String _searchQuery = '';
+  final _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _loadWords();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadWords() async {
@@ -99,8 +108,19 @@ class _WordBookScreenState extends State<WordBookScreen> {
   }
 
   List<Word> get _filteredWords {
-    if (_selectedTag == null) return _words;
-    return _words.where((w) => w.tags.contains(_selectedTag)).toList();
+    var result = _selectedTag == null
+        ? _words
+        : _words.where((w) => w.tags.contains(_selectedTag)).toList();
+    if (_searchQuery.isNotEmpty) {
+      final q = _searchQuery.toLowerCase();
+      result = result
+          .where((w) =>
+              w.front.toLowerCase().contains(q) ||
+              w.back.toLowerCase().contains(q) ||
+              w.pronunciation.toLowerCase().contains(q))
+          .toList();
+    }
+    return result;
   }
 
   @override
@@ -108,47 +128,78 @@ class _WordBookScreenState extends State<WordBookScreen> {
     final displayWords = _filteredWords;
     return Scaffold(
       appBar: AppBar(
-        title: Text('${langFlag(widget.wordBook.language)} ${langName(widget.wordBook.language)}'),
+        title: _searching
+            ? TextField(
+                controller: _searchController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: '搜索单词、译文、读音…',
+                  border: InputBorder.none,
+                  hintStyle: TextStyle(color: Colors.white70),
+                ),
+                style: const TextStyle(color: Colors.white),
+                onChanged: (v) => setState(() => _searchQuery = v),
+              )
+            : Text('${langFlag(widget.wordBook.language)} ${langName(widget.wordBook.language)}'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.psychology),
-            tooltip: '记忆强化',
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => TrainingScreen(wordBook: widget.wordBook),
-                ),
-              );
-              _loadWords();
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.label),
-            tooltip: '标签管理',
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => TagManagementScreen(wordBook: widget.wordBook),
-                ),
-              );
-              _loadWords();
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.add),
-            tooltip: '添加单词',
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => AddWordScreen(wordBook: widget.wordBook),
-                ),
-              );
-              _loadWords();
-            },
-          ),
+          if (_searching)
+            IconButton(
+              icon: const Icon(Icons.close),
+              tooltip: '关闭搜索',
+              onPressed: () {
+                setState(() {
+                  _searching = false;
+                  _searchQuery = '';
+                  _searchController.clear();
+                });
+              },
+            )
+          else ...[
+            IconButton(
+              icon: const Icon(Icons.search),
+              tooltip: '搜索',
+              onPressed: () => setState(() => _searching = true),
+            ),
+            IconButton(
+              icon: const Icon(Icons.psychology),
+              tooltip: '记忆强化',
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => TrainingScreen(wordBook: widget.wordBook),
+                  ),
+                );
+                _loadWords();
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.label),
+              tooltip: '标签管理',
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => TagManagementScreen(wordBook: widget.wordBook),
+                  ),
+                );
+                _loadWords();
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.add),
+              tooltip: '添加单词',
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => AddWordScreen(wordBook: widget.wordBook),
+                  ),
+                );
+                _loadWords();
+              },
+            ),
+          ],
         ],
       ),
       body: Column(
@@ -180,7 +231,9 @@ class _WordBookScreenState extends State<WordBookScreen> {
           Expanded(
             child: displayWords.isEmpty
                 ? Center(
-                    child: Text(_words.isEmpty ? '还没有单词，点击右上角 + 添加' : '该标签下没有单词'),
+                    child: Text(_searchQuery.isNotEmpty
+                        ? '没有匹配的单词'
+                        : (_words.isEmpty ? '还没有单词，点击右上角 + 添加' : '该标签下没有单词')),
                   )
                 : ListView.separated(
                     itemCount: displayWords.length,
