@@ -39,3 +39,4 @@ Thumbs.db
 
 # Claude Code local settings (keep CLAUDE.md but ignore local settings)
 .claude/settings.local.json
+.vercel
