@@ -13,6 +13,7 @@ class TagManagementScreen extends StatefulWidget {
 class _TagManagementScreenState extends State<TagManagementScreen> {
   final _dbService = DatabaseService();
   List<String> _tags = [];
+  Map<String, int> _tagCounts = {};
 
   @override
   void initState() {
@@ -22,7 +23,49 @@ class _TagManagementScreenState extends State<TagManagementScreen> {
 
   Future<void> _loadTags() async {
     final tags = await _dbService.getAllTags(widget.wordBook.id);
-    setState(() => _tags = tags);
+    final words = await _dbService.getWordsByBookId(widget.wordBook.id);
+    final counts = <String, int>{};
+    for (final tag in tags) {
+      counts[tag] = words.where((w) => w.tags.contains(tag)).length;
+    }
+    setState(() {
+      _tags = tags;
+      _tagCounts = counts;
+    });
+  }
+
+  Future<void> _addTag() async {
+    final controller = TextEditingController();
+    final newTag = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('添加标签'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: '标签名'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('添加'),
+          ),
+        ],
+      ),
+    );
+    if (newTag == null || newTag.isEmpty) return;
+    if (_tags.contains(newTag)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('标签"$newTag"已存在')));
+      }
+      return;
+    }
+    await _dbService.insertTag(widget.wordBook.id, newTag);
+    _loadTags();
   }
 
   Future<void> _renameTag(String oldTag) async {
@@ -79,7 +122,16 @@ class _TagManagementScreenState extends State<TagManagementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('标签管理')),
+      appBar: AppBar(
+        title: const Text('标签管理'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            tooltip: '添加标签',
+            onPressed: _addTag,
+          ),
+        ],
+      ),
       body: _tags.isEmpty
           ? const Center(child: Text('暂无标签'))
           : ListView.builder(
@@ -88,6 +140,13 @@ class _TagManagementScreenState extends State<TagManagementScreen> {
                 final tag = _tags[index];
                 return ListTile(
                   title: Text(tag),
+                  leading: CircleAvatar(
+                    radius: 14,
+                    child: Text(
+                      '${_tagCounts[tag] ?? 0}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/wordbook.dart';
 import '../models/word.dart';
 import '../services/database_service.dart';
+import '../services/tts_service.dart';
 import 'add_word_screen.dart';
 import 'edit_word_screen.dart';
 import 'training_screen.dart';
@@ -73,6 +74,7 @@ class WordBookScreen extends StatefulWidget {
 
 class _WordBookScreenState extends State<WordBookScreen> {
   final _dbService = DatabaseService();
+  final _tts = TtsService();
   List<Word> _words = [];
   List<String> _allTags = [];
   String? _selectedTag; // null = 不过滤
@@ -180,37 +182,28 @@ class _WordBookScreenState extends State<WordBookScreen> {
                 ? Center(
                     child: Text(_words.isEmpty ? '还没有单词，点击右上角 + 添加' : '该标签下没有单词'),
                   )
-                : ListView.builder(
+                : ListView.separated(
                     itemCount: displayWords.length,
+                    separatorBuilder: (context, index) => const Divider(
+                      height: 1,
+                      thickness: 0.5,
+                      indent: 16,
+                      endIndent: 16,
+                    ),
                     itemBuilder: (context, index) {
                       final word = displayWords[index];
                       return ListTile(
                         title: Text(word.front),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(word.back),
-                            if (word.tags.isNotEmpty)
-                              Wrap(
-                                spacing: 4,
-                                children: word.tags
-                                    .map(
-                                      (tag) => Chip(
-                                        label: Text(tag, style: const TextStyle(fontSize: 11)),
-                                        padding: EdgeInsets.zero,
-                                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                      ),
-                                    )
-                                    .toList(),
-                              ),
-                          ],
-                        ),
-                        isThreeLine: word.tags.isNotEmpty,
+                        subtitle: Text(word.back),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             _memoryClover(word.memoryLevel),
                             const SizedBox(width: 4),
+                            IconButton(
+                              icon: const Icon(Icons.volume_up, size: 20),
+                              onPressed: () => _tts.speak(word.front, widget.wordBook.language),
+                            ),
                             IconButton(
                               icon: const Icon(Icons.edit),
                               onPressed: () async {

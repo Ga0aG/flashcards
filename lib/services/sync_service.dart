@@ -100,7 +100,8 @@ class SyncService {
     }
     for (final word in localWords) {
       final cloud = cloudWordMap[word.id];
-      if (cloud == null || (cloud['updated_at'] as int? ?? 0) < word.createdAt) {
+      final localUpdatedAt = word.lastCorrectAt > 0 ? word.lastCorrectAt : word.createdAt;
+      if (cloud == null || (cloud['updated_at'] as int? ?? 0) < localUpdatedAt) {
         batch.set(_wordsRef(uid).doc(word.id), _wordToFirestore(word));
         count++;
         await commitIfNeeded();
@@ -168,7 +169,7 @@ class SyncService {
       );
       final local = localWordMap[doc.id];
       final cloudUpdatedAt = data['updated_at'] as int? ?? 0;
-      final localUpdatedAt = local?.createdAt ?? 0;
+      final localUpdatedAt = local?.lastCorrectAt ?? 0;
       if (local == null || localUpdatedAt < cloudUpdatedAt) {
         await _db.upsertWord(cloudWord);
       }
@@ -202,7 +203,7 @@ class SyncService {
     'memory_level': word.memoryLevel,
     'last_correct_at': word.lastCorrectAt,
     'created_at': word.createdAt,
-    'updated_at': word.createdAt,
+    'updated_at': word.lastCorrectAt > 0 ? word.lastCorrectAt : word.createdAt,
     'deleted': false,
   };
 }

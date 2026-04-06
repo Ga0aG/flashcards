@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import '../models/wordbook.dart';
+import '../providers/auth_provider.dart';
 import '../services/database_service.dart';
 import 'wordbook_screen.dart';
 import 'training_screen.dart';
@@ -28,11 +30,23 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _dbService = DatabaseService();
   List<WordBook> _wordbooks = [];
+  bool _wasSyncing = false;
 
   @override
   void initState() {
     super.initState();
     _loadWordBooks();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final syncing = context.watch<AuthProvider>().syncing;
+    // 同步完成时刷新列表
+    if (_wasSyncing && !syncing) {
+      _loadWordBooks();
+    }
+    _wasSyncing = syncing;
   }
 
   Future<void> _loadWordBooks() async {

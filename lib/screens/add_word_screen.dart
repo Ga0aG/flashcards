@@ -18,18 +18,100 @@ class _AddWordScreenState extends State<AddWordScreen> {
   final _translationService = TranslationService();
   final _frontController = TextEditingController();
   final _backController = TextEditingController();
-  final _tagsController = TextEditingController();
   bool _isGenerating = false;
 
-  // 注释用状态变量 + UniqueKey 驱动，绕过 Flutter web 外部修改 controller 不刷新的问题
   String _notes = '';
   Key _notesFieldKey = UniqueKey();
+
+  List<String> _selectedTags = [];
+  List<String> _availableTags = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTags();
+  }
+
+  Future<void> _loadTags() async {
+    final tags = await _dbService.getAllTags(widget.wordBook.id);
+    setState(() => _availableTags = tags);
+  }
 
   void _setNotes(String value) {
     setState(() {
       _notes = value;
       _notesFieldKey = UniqueKey();
     });
+  }
+
+  Future<void> _pickTag() async {
+    final controller = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final query = controller.text.trim().toLowerCase();
+            final filtered = _availableTags
+                .where((t) => !_selectedTags.contains(t) && t.toLowerCase().contains(query))
+                .toList();
+            return AlertDialog(
+              title: const Text('选择标签'),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: controller,
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        hintText: '搜索标签…',
+                        prefixIcon: Icon(Icons.search),
+                        isDense: true,
+                      ),
+                      onChanged: (_) => setDialogState(() {}),
+                    ),
+                    const SizedBox(height: 8),
+                    if (filtered.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        child: Text('无匹配标签', style: TextStyle(color: Colors.grey)),
+                      )
+                    else
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 240),
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: filtered.length,
+                          itemBuilder: (context, i) => ListTile(
+                            title: Text(filtered[i]),
+                            dense: true,
+                            onTap: () {
+                              setState(() {
+                                if (!_selectedTags.contains(filtered[i])) {
+                                  _selectedTags.add(filtered[i]);
+                                }
+                              });
+                              Navigator.pop(context);
+                            },
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('关闭'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _generateTranslation() async {
@@ -44,7 +126,6 @@ class _AddWordScreenState extends State<AddWordScreen> {
     final mainLang = await _dbService.getSetting('main_language') ?? 'zh-CN';
     final sourceLang = widget.wordBook.language;
 
-    // 单词翻译和例句获取并行
     final translationFuture = _translationService
         .translate(word, sourceLang, mainLang)
         .catchError((e) => null);
@@ -52,18 +133,15 @@ class _AddWordScreenState extends State<AddWordScreen> {
         .getExampleSentence(word, sourceLang)
         .catchError((e) => null);
 
-    // 单词翻译完成立刻更新译文框
     final translation = await translationFuture;
     if (mounted && translation != null) {
       _backController.value = TextEditingValue(text: translation);
     }
 
-    // 等例句
     final example = await exampleFuture;
     if (!mounted) return;
 
     if (example != null) {
-      // 翻译例句
       final exampleTranslation = await _translationService
           .translate(example, sourceLang, mainLang)
           .catchError((e) => null);
@@ -91,7 +169,7 @@ class _AddWordScreenState extends State<AddWordScreen> {
       front: _frontController.text,
       back: _backController.text,
       notes: _notes,
-      tags: _tagsController.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
+      tags: _selectedTags,
       pronunciation: '',
       memoryLevel: 1,
       lastCorrectAt: 0,
@@ -109,38 +187,63 @@ class _AddWordScreenState extends State<AddWordScreen> {
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _frontController,
-                      decoration: const InputDecoration(labelText: '单词（正面）'),
-                    ),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _frontController,
+                    decoration: const InputDecoration(labelText: '单词（正面）'),
                   ),
-                  const SizedBox(width: 8),
-                  ElevatedButton.icon(
-                    onPressed: _isGenerating ? null : _generateTranslation,
-                    icon: _isGenerating
-                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.auto_awesome),
-                    label: const Text('生成'),
-                  ),
-                ],
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  onPressed: _isGenerating ? null : _generateTranslation,
+                  icon: _isGenerating
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.auto_awesome),
+                  label: const Text('生成'),
+                ),
+              ],
+            ),
+            TextField(controller: _backController, decoration: const InputDecoration(labelText: '译文（背面）')),
+            TextFormField(
+              key: _notesFieldKey,
+              initialValue: _notes,
+              onChanged: (v) => _notes = v,
+              decoration: const InputDecoration(labelText: '注释/例句'),
+              maxLines: null,
+            ),
+            const SizedBox(height: 16),
+            // 标签区域
+            InkWell(
+              onTap: _pickTag,
+              borderRadius: BorderRadius.circular(8),
+              child: InputDecorator(
+                decoration: const InputDecoration(labelText: '标签'),
+                child: _selectedTags.isEmpty
+                    ? const Text('点击选择标签', style: TextStyle(color: Colors.grey))
+                    : Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: _selectedTags.map((tag) => Chip(
+                          label: Text(tag),
+                          deleteIcon: const Icon(Icons.close, size: 16),
+                          onDeleted: () => setState(() => _selectedTags.remove(tag)),
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                        )).toList(),
+                      ),
               ),
-              TextField(controller: _backController, decoration: const InputDecoration(labelText: '译文（背面）')),
-              TextFormField(
-                key: _notesFieldKey,
-                initialValue: _notes,
-                onChanged: (v) => _notes = v,
-                decoration: const InputDecoration(labelText: '注释/例句'),
-                maxLines: null,
-              ),
-              TextField(controller: _tagsController, decoration: const InputDecoration(labelText: '标签(逗号分隔)')),
-              const SizedBox(height: 20),
-              ElevatedButton(onPressed: _saveWord, child: const Text('保存')),
-            ],
-          ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(onPressed: _saveWord, child: const Text('保存')),
+            ),
+          ],
+        ),
       ),
     );
   }

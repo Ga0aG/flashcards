@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/wordbook.dart';
 import '../models/word.dart';
@@ -27,6 +26,10 @@ class _TrainingScreenState extends State<TrainingScreen>
 
   // 滑动相关
   double _dragOffset = 0;
+  late AnimationController _snapController;
+  late Animation<double> _snapAnimation;
+  double _snapFrom = 0;
+  double _snapTo = 0;
 
   // 本次训练中被右划过的单词ID集合（不能在本次升级）
   final Set<String> _swipedRightIds = {};
@@ -37,11 +40,20 @@ class _TrainingScreenState extends State<TrainingScreen>
   @override
   void initState() {
     super.initState();
+    _snapController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    )..addListener(() {
+        setState(() {
+          _dragOffset = _snapAnimation.value;
+        });
+      });
     _showTagSelector();
   }
 
   @override
   void dispose() {
+    _snapController.dispose();
     _tts.stop();
     super.dispose();
   }
@@ -130,8 +142,8 @@ class _TrainingScreenState extends State<TrainingScreen>
       _loaded = true;
     });
 
-    // 语音模式下自动播放（web 端受浏览器限制，需用户手动点喇叭）
-    if (_voiceMode && _queue.isNotEmpty && !kIsWeb) {
+    // 自动播放第一张卡片
+    if (_queue.isNotEmpty) {
       _speak(_queue[0].front);
     }
   }
@@ -174,7 +186,7 @@ class _TrainingScreenState extends State<TrainingScreen>
       }
     });
 
-    if (_voiceMode && _queue.isNotEmpty && !kIsWeb) {
+    if (_queue.isNotEmpty) {
       _speak(_currentWord.front);
     }
   }
@@ -193,28 +205,53 @@ class _TrainingScreenState extends State<TrainingScreen>
       }
     });
 
-    if (_voiceMode && _queue.isNotEmpty && !kIsWeb) {
+    if (_queue.isNotEmpty) {
       _speak(_currentWord.front);
     }
   }
 
   void _onDragUpdate(DragUpdateDetails details) {
+    if (_snapController.isAnimating) return;
     setState(() {
       _dragOffset += details.delta.dx;
     });
   }
 
   void _onDragEnd(DragEndDetails details) {
-    final threshold = MediaQuery.of(context).size.width * 0.35;
-    if (_dragOffset < -threshold) {
-      _swipeLeft();
-    } else if (_dragOffset > threshold) {
-      _swipeRight();
+    final screenWidth = MediaQuery.of(context).size.width;
+    final threshold = screenWidth * 0.35;
+    final velocity = details.velocity.pixelsPerSecond.dx;
+
+    if (_dragOffset < -threshold || velocity < -800) {
+      // 左划飞出
+      _animateAndSwipe(to: -screenWidth * 1.5, onComplete: _swipeLeft);
+    } else if (_dragOffset > threshold || velocity > 800) {
+      // 右划飞出
+      _animateAndSwipe(to: screenWidth * 1.5, onComplete: _swipeRight);
     } else {
-      setState(() {
-        _dragOffset = 0;
-      });
+      // 弹回
+      _animateTo(0);
     }
+  }
+
+  void _animateAndSwipe({required double to, required Future<void> Function() onComplete}) {
+    _snapFrom = _dragOffset;
+    _snapTo = to;
+    _snapAnimation = Tween<double>(begin: _snapFrom, end: _snapTo).animate(
+      CurvedAnimation(parent: _snapController, curve: Curves.easeOut),
+    );
+    _snapController.forward(from: 0).then((_) async {
+      await onComplete();
+    });
+  }
+
+  void _animateTo(double target) {
+    _snapFrom = _dragOffset;
+    _snapTo = target;
+    _snapAnimation = Tween<double>(begin: _snapFrom, end: _snapTo).animate(
+      CurvedAnimation(parent: _snapController, curve: Curves.elasticOut),
+    );
+    _snapController.forward(from: 0);
   }
 
   @override
@@ -250,12 +287,10 @@ class _TrainingScreenState extends State<TrainingScreen>
       appBar: AppBar(
         title: Text('${_currentIndex + 1}/${_queue.length}'),
         actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: Chip(
-              label: Text(_voiceMode ? '语音模式' : '单词模式', style: const TextStyle(fontSize: 12)),
-              avatar: Icon(_voiceMode ? Icons.volume_up : Icons.text_fields, size: 16),
-            ),
+          IconButton(
+            icon: Icon(_voiceMode ? Icons.visibility_off : Icons.visibility),
+            tooltip: _voiceMode ? '显示单词' : '隐藏单词',
+            onPressed: () => setState(() => _voiceMode = !_voiceMode),
           ),
         ],
       ),
@@ -326,7 +361,7 @@ class _TrainingScreenState extends State<TrainingScreen>
               child: Center(
                 child: Text(
                   _showStep == 0
-                      ? (_voiceMode ? '点击查看注释' : '点击查看注释')
+                      ? '点击查看注释'
                       : (_showStep == 1 ? '点击查看译文' : '左划记住 / 右划再来'),
                   style: TextStyle(color: Colors.grey[500], fontSize: 13),
                 ),
@@ -387,13 +422,11 @@ class _TrainingScreenState extends State<TrainingScreen>
             ),
           ),
         ),
-        if (_voiceMode) ...[
-          const SizedBox(height: 16),
-          GestureDetector(
-            onTap: () => _speak(word.front),
-            child: const Icon(Icons.volume_up, size: 56, color: Colors.blueAccent),
-          ),
-        ],
+        const SizedBox(height: 16),
+        GestureDetector(
+          onTap: () => _speak(word.front),
+          child: const Icon(Icons.volume_up, size: 48, color: Colors.blueAccent),
+        ),
       ],
     );
   }
@@ -463,7 +496,6 @@ class _CountSelectorDialog extends StatefulWidget {
 
 class _CountSelectorDialogState extends State<_CountSelectorDialog> {
   late final TextEditingController _controller;
-  bool _voiceMode = false;
 
   @override
   void initState() {
@@ -481,28 +513,14 @@ class _CountSelectorDialogState extends State<_CountSelectorDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('训练设置'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _controller,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              labelText: '单词数量',
-              hintText: '输入要复习的单词数量',
-            ),
-            autofocus: true,
-          ),
-          const SizedBox(height: 16),
-          SwitchListTile(
-            title: const Text('语音模式'),
-            subtitle: const Text('隐藏单词，自动播放发音'),
-            secondary: const Icon(Icons.volume_up),
-            value: _voiceMode,
-            onChanged: (v) => setState(() => _voiceMode = v),
-            contentPadding: EdgeInsets.zero,
-          ),
-        ],
+      content: TextField(
+        controller: _controller,
+        keyboardType: TextInputType.number,
+        decoration: const InputDecoration(
+          labelText: '单词数量',
+          hintText: '输入要复习的单词数量',
+        ),
+        autofocus: true,
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
@@ -510,7 +528,7 @@ class _CountSelectorDialogState extends State<_CountSelectorDialog> {
           onPressed: () {
             final count = int.tryParse(_controller.text);
             if (count != null && count > 0) {
-              Navigator.pop(context, _TrainingConfig(count: count, voiceMode: _voiceMode));
+              Navigator.pop(context, _TrainingConfig(count: count, voiceMode: false));
             }
           },
           child: const Text('开始'),

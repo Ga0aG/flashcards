@@ -268,6 +268,25 @@ class DatabaseService {
 
   // ─── Tag operations ───────────────────────────────────────────────
 
+  String _customTagsKey(String bookId) => 'custom_tags_$bookId';
+
+  Future<List<String>> _getCustomTags(String bookId) async {
+    await _init();
+    final raw = _storage.getItem(_customTagsKey(bookId));
+    if (raw == null) return [];
+    return List<String>.from(raw as List);
+  }
+
+  Future<void> insertTag(String bookId, String tag) async {
+    await _init();
+    final tags = await _getCustomTags(bookId);
+    if (!tags.contains(tag)) {
+      tags.add(tag);
+      tags.sort();
+      _storage.setItem(_customTagsKey(bookId), tags);
+    }
+  }
+
   Future<List<String>> getAllTags(String bookId) async {
     await _init();
     List<dynamic> words = _storage.getItem('words') ?? [];
@@ -282,6 +301,8 @@ class DatabaseService {
         }
       }
     }
+    // 合并预定义标签
+    tags.addAll(await _getCustomTags(bookId));
     return tags.toList()..sort();
   }
 
@@ -306,6 +327,14 @@ class DatabaseService {
       }
     }
     _storage.setItem('words', words);
+    // 同步预定义标签
+    final customTags = await _getCustomTags(bookId);
+    final ci = customTags.indexOf(oldTag);
+    if (ci != -1) {
+      customTags[ci] = newTag;
+      customTags.sort();
+      _storage.setItem(_customTagsKey(bookId), customTags);
+    }
   }
 
   Future<void> deleteTag(String bookId, String tag) async {
@@ -325,6 +354,11 @@ class DatabaseService {
       }
     }
     _storage.setItem('words', words);
+    // 同步预定义标签
+    final customTags = await _getCustomTags(bookId);
+    if (customTags.remove(tag)) {
+      _storage.setItem(_customTagsKey(bookId), customTags);
+    }
   }
 
   // ─── Settings ─────────────────────────────────────────────────────
