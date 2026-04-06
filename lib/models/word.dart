@@ -40,6 +40,23 @@ class Word {
     };
   }
 
+  Map<String, dynamic> toFirestoreMap() {
+    return {
+      'id': id,
+      'wordbook_id': wordBookId,
+      'front': front,
+      'back': back,
+      'notes': notes,
+      'tags': tags,
+      'pronunciation': pronunciation,
+      'memory_level': memoryLevel,
+      'last_correct_at': lastCorrectAt,
+      'created_at': createdAt,
+      'updated_at': lastCorrectAt > 0 ? lastCorrectAt : createdAt,
+      'deleted': false,
+    };
+  }
+
   Word copyWith({
     String? id,
     String? wordBookId,
@@ -69,17 +86,37 @@ class Word {
   }
 
   factory Word.fromMap(Map<String, dynamic> map) {
+    final tagsRaw = map['tags'];
+    final tags = tagsRaw is List
+        ? tagsRaw.cast<String>()
+        : (tagsRaw as String? ?? '').split(',').where((t) => t.isNotEmpty).toList();
     return Word(
       id: map['id'],
       wordBookId: map['wordbook_id'],
       front: map['front'],
       back: map['back'],
       notes: map['notes'] ?? '',
-      tags: (map['tags'] as String).split(',').where((t) => t.isNotEmpty).toList(),
+      tags: tags,
       pronunciation: map['pronunciation'] ?? '',
       memoryLevel: map['memory_level'],
       lastCorrectAt: map['last_correct_at'],
       createdAt: map['created_at'],
+    );
+  }
+
+  factory Word.fromFirestoreMap(Map<String, dynamic> map) {
+    final tags = (map['tags'] as List<dynamic>?)?.cast<String>() ?? [];
+    return Word(
+      id: map['id'],
+      wordBookId: map['wordbook_id'] ?? '',
+      front: map['front'] ?? '',
+      back: map['back'] ?? '',
+      notes: map['notes'] ?? '',
+      tags: tags,
+      pronunciation: map['pronunciation'] ?? '',
+      memoryLevel: map['memory_level'] ?? 1,
+      lastCorrectAt: map['last_correct_at'] ?? 0,
+      createdAt: map['created_at'] ?? 0,
     );
   }
 }

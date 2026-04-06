@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
 import '../services/database_service.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -38,11 +40,97 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+
     return Scaffold(
       appBar: AppBar(title: const Text('设置')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // ── 账号区块 ──────────────────────────────────────
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('账号与同步', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                  const SizedBox(height: 12),
+                  if (auth.syncing)
+                    const Row(
+                      children: [
+                        SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                        SizedBox(width: 12),
+                        Text('正在同步数据...'),
+                      ],
+                    )
+                  else if (auth.isLoggedIn) ...[
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 20,
+                          child: auth.user?.photoURL != null
+                              ? ClipOval(
+                                  child: Image.network(
+                                    auth.user!.photoURL!,
+                                    width: 40,
+                                    height: 40,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => const Icon(Icons.person),
+                                  ),
+                                )
+                              : const Icon(Icons.person),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(auth.user?.displayName ?? '已登录',
+                                  style: const TextStyle(fontWeight: FontWeight.bold)),
+                              Text(auth.user?.email ?? '',
+                                  style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    const Text('数据已开启云端同步', style: TextStyle(fontSize: 12, color: Colors.green)),
+                    const SizedBox(height: 8),
+                    OutlinedButton(
+                      onPressed: () async {
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('退出登录'),
+                            content: const Text('退出后数据仍保留在本地，但不再同步到云端。'),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('退出')),
+                            ],
+                          ),
+                        );
+                        if (confirm == true) auth.signOut();
+                      },
+                      child: const Text('退出登录'),
+                    ),
+                  ] else ...[
+                    const Text('登录后可在多设备间同步单词本',
+                        style: TextStyle(fontSize: 12, color: Colors.grey)),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: auth.syncing ? null : () => auth.signIn(),
+                      icon: const Icon(Icons.login),
+                      label: const Text('使用 Google 账号登录'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          // ── 语言和复习数量 ─────────────────────────────────
           ListTile(
             title: const Text('主语言'),
             subtitle: Text(_mainLanguage),

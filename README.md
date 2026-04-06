@@ -97,6 +97,79 @@ lib/
 - 查看日志: `flutter logs`
 
 
+## Firebase 云同步配置
+
+### 1. 创建 Firebase 项目
+
+1. 访问 [console.firebase.google.com](https://console.firebase.google.com)，用 Google 账号登录
+2. 点击「新增专案」（或「Add project」），填写项目名称，完成创建
+3. 进入项目控制台后，**左侧导航栏**（不是 Cloud Shell）找到以下入口：
+
+### 2. 开启 Firestore 数据库
+
+1. 左侧导航栏 → **构建（Build）** → **Firestore Database**（或者搜索产品）
+2. 点击「建立资料库」（Create database）
+3. 选择「以生产模式启动」（Start in production mode）
+4. 选择数据库位置（亚洲用 `asia-east1` 或 `asia-northeast1`）
+5. 创建完成后，点击左侧「规则（Rules）」标签页，将规则替换为：
+   ```javascript
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /users/{uid}/{document=**} {
+         allow read, write: if request.auth != null && request.auth.uid == uid;
+       }
+     }
+   }
+   ```
+   点击「发布（Publish）」保存规则
+
+### 3. 开启 Google 登录
+
+1. 左侧导航栏 → **构建（Build）** → **Authentication**
+2. 点击「开始使用」（Get started）
+3. 点击「Sign-in method」标签页 → 找到「Google」→ 点击启用（Enable）
+4. 填写项目的公开名称（显示在 Google 登录弹窗上，如「Flashcards」）
+5. 选择支持邮箱，点击「储存（Save）」
+
+### 4. 安装 Firebase CLI 和 FlutterFire CLI
+
+```bash
+# 安装 Firebase CLI（需要 Node.js）
+npm install -g firebase-tools
+
+# 安装 FlutterFire CLI
+dart pub global activate flutterfire_cli
+
+# 确保 PATH 包含 pub global bin
+export PATH="$PATH:$HOME/.pub-cache/bin"
+```
+
+### 5. 登录并配置项目
+
+```bash
+# 登录 Firebase（会打开浏览器）
+firebase login
+
+# 在项目根目录运行，自动生成各平台配置
+cd /home/zhuojun/workspace/apps/flashcards
+flutterfire configure --project=flashcards-b6e18
+```
+
+运行后会：
+- 自动生成 `lib/firebase_options.dart`（各平台配置汇总）
+- 自动生成 `android/app/google-services.json`
+- 自动生成 `ios/Runner/GoogleService-Info.plist`
+
+### 6. 安装依赖并运行
+
+```bash
+flutter pub get
+flutter run -d chrome --web-browser-flag "--disable-web-security"
+```
+
+---
+
 ## prerequirment
 
 1. 安装Android studio
