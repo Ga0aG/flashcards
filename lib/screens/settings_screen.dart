@@ -150,7 +150,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               );
               if (result != null) {
                 setState(() => _mainLanguage = result);
-                _saveSettings();
+                await _saveSettings();
               }
             },
           ),
@@ -180,7 +180,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               );
               if (result != null && result > 0) {
                 setState(() => _defaultReviewCount = result);
-                _saveSettings();
+                await _saveSettings();
               }
             },
           ),

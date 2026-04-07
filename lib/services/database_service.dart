@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:localstorage/localstorage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/wordbook.dart';
 import '../models/word.dart';
 import 'spaced_repetition.dart';
@@ -21,10 +23,14 @@ class DatabaseService {
   CollectionReference? get _wordsRef =>
       _uid != null ? _firestore.collection('users/$_uid/words') : null;
   DocumentReference? get _settingsRef =>
-      _uid != null ? _firestore.doc('users/$_uid/settings') : null;
+      _uid != null ? _firestore.collection('users').doc(_uid).collection('meta').doc('settings') : null;
 
   void setFirestoreUser(String? uid) {
     _uid = uid;
+  }
+
+  Future<void> _save(String key, dynamic value) async {
+    await _storage.setItem(key, value);
   }
 
   Future<void> _init() async {
@@ -32,13 +38,10 @@ class DatabaseService {
       await _storage.ready;
       _initialized = true;
       if (_storage.getItem('wordbooks') == null) {
-        _storage.setItem('wordbooks', []);
+        await _save('wordbooks', []);
       }
       if (_storage.getItem('words') == null) {
-        _storage.setItem('words', []);
-      }
-      if (_storage.getItem('settings') == null) {
-        _storage.setItem('settings', {'main_language': 'zh-CN', 'default_review_count': '20'});
+        await _save('words', []);
       }
     }
   }
@@ -49,7 +52,7 @@ class DatabaseService {
     await _init();
     List<dynamic> books = _storage.getItem('wordbooks') ?? [];
     books.add(wordbook.toMap());
-    _storage.setItem('wordbooks', books);
+    await _save('wordbooks', books);
     _wordbooksRef?.doc(wordbook.id).set(wordbook.toFirestoreMap());
   }
 
@@ -63,11 +66,11 @@ class DatabaseService {
     await _init();
     List<dynamic> books = _storage.getItem('wordbooks') ?? [];
     books.removeWhere((b) => b['id'] == id);
-    _storage.setItem('wordbooks', books);
+    await _save('wordbooks', books);
 
     List<dynamic> words = _storage.getItem('words') ?? [];
     words.removeWhere((w) => w['wordbook_id'] == id);
-    _storage.setItem('words', words);
+    await _save('words', words);
 
     // Firestore 软删除
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -85,11 +88,11 @@ class DatabaseService {
     await _init();
     List<dynamic> books = _storage.getItem('wordbooks') ?? [];
     books.removeWhere((b) => b['id'] == id);
-    _storage.setItem('wordbooks', books);
+    await _save('wordbooks', books);
 
     List<dynamic> words = _storage.getItem('words') ?? [];
     words.removeWhere((w) => w['wordbook_id'] == id);
-    _storage.setItem('words', words);
+    await _save('words', words);
   }
 
   // 供 SyncService 使用：upsert（存在则覆盖，不存在则插入）
@@ -102,7 +105,7 @@ class DatabaseService {
     } else {
       books.add(wordbook.toMap());
     }
-    _storage.setItem('wordbooks', books);
+    await _save('wordbooks', books);
   }
 
   // ─── Word CRUD ────────────────────────────────────────────────────
@@ -111,7 +114,7 @@ class DatabaseService {
     await _init();
     List<dynamic> words = _storage.getItem('words') ?? [];
     words.add(word.toMap());
-    _storage.setItem('words', words);
+    await _save('words', words);
     _wordsRef?.doc(word.id).set(word.toFirestoreMap());
   }
 
@@ -139,7 +142,7 @@ class DatabaseService {
         break;
       }
     }
-    _storage.setItem('words', words);
+    await _save('words', words);
     _wordsRef?.doc(wordId).update({
       'memory_level': newLevel,
       if (updateCorrectTime) 'last_correct_at': now,
@@ -169,7 +172,7 @@ class DatabaseService {
         break;
       }
     }
-    _storage.setItem('words', words);
+    await _save('words', words);
     _wordsRef?.doc(wordId).update({
       'memory_level': newLevel,
       'last_correct_at': nowMs,
@@ -187,7 +190,7 @@ class DatabaseService {
         break;
       }
     }
-    _storage.setItem('words', words);
+    await _save('words', words);
     final map = word.toFirestoreMap();
     map['updated_at'] = now;
     _wordsRef?.doc(word.id).set(map);
@@ -197,7 +200,7 @@ class DatabaseService {
     await _init();
     List<dynamic> words = _storage.getItem('words') ?? [];
     words.removeWhere((w) => w['id'] == id);
-    _storage.setItem('words', words);
+    await _save('words', words);
     final now = DateTime.now().millisecondsSinceEpoch;
     _wordsRef?.doc(id).update({'deleted': true, 'updated_at': now});
   }
@@ -207,7 +210,7 @@ class DatabaseService {
     await _init();
     List<dynamic> words = _storage.getItem('words') ?? [];
     words.removeWhere((w) => w['id'] == id);
-    _storage.setItem('words', words);
+    await _save('words', words);
   }
 
   // 供 SyncService 使用：upsert word
@@ -220,7 +223,7 @@ class DatabaseService {
     } else {
       words.add(word.toMap());
     }
-    _storage.setItem('words', words);
+    await _save('words', words);
   }
 
   // 供 SyncService 使用：云端数据合并到本地
@@ -283,7 +286,7 @@ class DatabaseService {
     if (!tags.contains(tag)) {
       tags.add(tag);
       tags.sort();
-      _storage.setItem(_customTagsKey(bookId), tags);
+      await _save(_customTagsKey(bookId), tags);
     }
   }
 
@@ -326,14 +329,14 @@ class DatabaseService {
         }
       }
     }
-    _storage.setItem('words', words);
+    await _save('words', words);
     // 同步预定义标签
     final customTags = await _getCustomTags(bookId);
     final ci = customTags.indexOf(oldTag);
     if (ci != -1) {
       customTags[ci] = newTag;
       customTags.sort();
-      _storage.setItem(_customTagsKey(bookId), customTags);
+      await _save(_customTagsKey(bookId), customTags);
     }
   }
 
@@ -353,29 +356,27 @@ class DatabaseService {
         });
       }
     }
-    _storage.setItem('words', words);
+    await _save('words', words);
     // 同步预定义标签
     final customTags = await _getCustomTags(bookId);
     if (customTags.remove(tag)) {
-      _storage.setItem(_customTagsKey(bookId), customTags);
+      await _save(_customTagsKey(bookId), customTags);
     }
   }
 
-  // ─── Settings ─────────────────────────────────────────────────────
+  // ─── Settings（用 SharedPreferences，在 Web 上更可靠）────────────
 
   Future<String?> getSetting(String key) async {
-    await _init();
-    Map<String, dynamic> settings =
-        Map<String, dynamic>.from(_storage.getItem('settings') ?? {});
-    return settings[key];
+    final prefs = await SharedPreferences.getInstance();
+    final val = prefs.getString(key);
+    debugPrint('[Settings] getSetting $key = $val');
+    return val;
   }
 
   Future<void> setSetting(String key, String value) async {
-    await _init();
-    Map<String, dynamic> settings =
-        Map<String, dynamic>.from(_storage.getItem('settings') ?? {});
-    settings[key] = value;
-    _storage.setItem('settings', settings);
-    _settingsRef?.update({key: value});
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(key, value);
+    debugPrint('[Settings] setSetting $key = $value, verify = ${prefs.getString(key)}');
+    _settingsRef?.set({key: value}, SetOptions(merge: true));
   }
 }

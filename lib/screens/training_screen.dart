@@ -36,6 +36,7 @@ class _TrainingScreenState extends State<TrainingScreen>
 
   bool _loaded = false;
   bool _voiceMode = false;
+  bool _pronunciationMode = false;
 
   @override
   void initState() {
@@ -139,11 +140,12 @@ class _TrainingScreenState extends State<TrainingScreen>
     setState(() {
       _queue = selected;
       _voiceMode = result.voiceMode;
+      _pronunciationMode = result.pronunciationMode;
       _loaded = true;
     });
 
-    // 自动播放第一张卡片
-    if (_queue.isNotEmpty) {
+    // 发音模式下不自动播放
+    if (_queue.isNotEmpty && !_pronunciationMode) {
       _speak(_queue[0].front);
     }
   }
@@ -153,7 +155,11 @@ class _TrainingScreenState extends State<TrainingScreen>
   void _onTap() {
     if (_queue.isEmpty) return;
     setState(() {
-      _showStep = (_showStep + 1) % 3;
+      if (_pronunciationMode) {
+        _showStep = (_showStep + 1) % 2;
+      } else {
+        _showStep = (_showStep + 1) % 3;
+      }
     });
   }
 
@@ -186,7 +192,7 @@ class _TrainingScreenState extends State<TrainingScreen>
       }
     });
 
-    if (_queue.isNotEmpty) {
+    if (_queue.isNotEmpty && !_pronunciationMode) {
       _speak(_currentWord.front);
     }
   }
@@ -205,7 +211,7 @@ class _TrainingScreenState extends State<TrainingScreen>
       }
     });
 
-    if (_queue.isNotEmpty) {
+    if (_queue.isNotEmpty && !_pronunciationMode) {
       _speak(_currentWord.front);
     }
   }
@@ -287,11 +293,17 @@ class _TrainingScreenState extends State<TrainingScreen>
       appBar: AppBar(
         title: Text('${_currentIndex + 1}/${_queue.length}'),
         actions: [
-          IconButton(
-            icon: Icon(_voiceMode ? Icons.visibility_off : Icons.visibility),
-            tooltip: _voiceMode ? '显示单词' : '隐藏单词',
-            onPressed: () => setState(() => _voiceMode = !_voiceMode),
-          ),
+          if (_pronunciationMode)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12),
+              child: Icon(Icons.record_voice_over),
+            )
+          else
+            IconButton(
+              icon: Icon(_voiceMode ? Icons.visibility_off : Icons.visibility),
+              tooltip: _voiceMode ? '显示单词' : '隐藏单词',
+              onPressed: () => setState(() => _voiceMode = !_voiceMode),
+            ),
         ],
       ),
       body: GestureDetector(
@@ -360,9 +372,11 @@ class _TrainingScreenState extends State<TrainingScreen>
               right: 0,
               child: Center(
                 child: Text(
-                  _showStep == 0
-                      ? '点击查看注释'
-                      : (_showStep == 1 ? '点击查看译文' : '左划记住 / 右划再来'),
+                  _pronunciationMode
+                      ? (_showStep == 0 ? '点击查看读音' : '左划记住 / 右划再来')
+                      : (_showStep == 0
+                          ? '点击查看注释'
+                          : (_showStep == 1 ? '点击查看译文' : '左划记住 / 右划再来')),
                   style: TextStyle(color: Colors.grey[500], fontSize: 13),
                 ),
               ),
@@ -384,42 +398,9 @@ class _TrainingScreenState extends State<TrainingScreen>
             width: 320,
             height: 240,
             padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (_voiceMode)
-                  const Text(
-                    '我是谁？',
-                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.grey),
-                  )
-                else
-                  Text(
-                    word.front,
-                    style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-                    textAlign: TextAlign.center,
-                  ),
-                if (_showStep >= 1 && word.notes.isNotEmpty) ...[
-                  const Divider(height: 24),
-                  Text(
-                    word.notes,
-                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-                if (_showStep >= 2) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    word.back,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      color: Colors.blue,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ],
-            ),
+            child: _pronunciationMode
+                ? _buildPronunciationCard(word)
+                : _buildNormalCard(word),
           ),
         ),
         const SizedBox(height: 16),
@@ -430,12 +411,102 @@ class _TrainingScreenState extends State<TrainingScreen>
       ],
     );
   }
+
+  // 普通模式：正面 → 注释+读音 → 译文
+  Widget _buildNormalCard(Word word) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        if (_voiceMode)
+          const Text(
+            '我是谁？',
+            style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.grey),
+          )
+        else
+          Text(
+            word.front,
+            style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
+          ),
+        if (_showStep >= 1) ...[
+          if (word.pronunciation.isNotEmpty || word.notes.isNotEmpty)
+            const Divider(height: 24),
+          if (word.pronunciation.isNotEmpty)
+            Text(
+              word.pronunciation,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[500],
+                fontStyle: FontStyle.italic,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          if (word.notes.isNotEmpty)
+            Text(
+              word.notes,
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+              textAlign: TextAlign.center,
+            ),
+        ],
+        if (_showStep >= 2) ...[
+          const SizedBox(height: 8),
+          Text(
+            word.back,
+            style: const TextStyle(
+              fontSize: 22,
+              color: Colors.blue,
+              fontWeight: FontWeight.w500,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ],
+    );
+  }
+
+  // 反推模式：先显示译文，点击后显示读音/正面
+  Widget _buildPronunciationCard(Word word) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          word.back,
+          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+          textAlign: TextAlign.center,
+        ),
+        if (_showStep >= 1) ...[
+          const Divider(height: 24),
+          if (word.pronunciation.isNotEmpty)
+            Text(
+              word.pronunciation,
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[600],
+                fontStyle: FontStyle.italic,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          const SizedBox(height: 4),
+          Text(
+            word.front,
+            style: const TextStyle(
+              fontSize: 26,
+              color: Colors.blue,
+              fontWeight: FontWeight.w600,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 class _TrainingConfig {
   final int count;
   final bool voiceMode;
-  _TrainingConfig({required this.count, required this.voiceMode});
+  final bool pronunciationMode; // 显示译文，复习读音，不自动发声
+  _TrainingConfig({required this.count, required this.voiceMode, this.pronunciationMode = false});
 }
 
 class _TagSelectorDialog extends StatefulWidget {
@@ -496,6 +567,7 @@ class _CountSelectorDialog extends StatefulWidget {
 
 class _CountSelectorDialogState extends State<_CountSelectorDialog> {
   late final TextEditingController _controller;
+  int _mode = 0; // 0=普通, 1=隐藏单词, 2=反推模式
 
   @override
   void initState() {
@@ -513,14 +585,43 @@ class _CountSelectorDialogState extends State<_CountSelectorDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('训练设置'),
-      content: TextField(
-        controller: _controller,
-        keyboardType: TextInputType.number,
-        decoration: const InputDecoration(
-          labelText: '单词数量',
-          hintText: '输入要复习的单词数量',
-        ),
-        autofocus: true,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _controller,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: '单词数量',
+              hintText: '输入要复习的单词数量',
+            ),
+            autofocus: true,
+          ),
+          const SizedBox(height: 16),
+          const Text('训练模式', style: TextStyle(fontSize: 13, color: Colors.grey)),
+          RadioListTile<int>(
+            dense: true,
+            title: const Text('普通'),
+            value: 0,
+            groupValue: _mode,
+            onChanged: (v) => setState(() => _mode = v!),
+          ),
+          RadioListTile<int>(
+            dense: true,
+            title: const Text('隐藏单词（语音模式）'),
+            value: 1,
+            groupValue: _mode,
+            onChanged: (v) => setState(() => _mode = v!),
+          ),
+          RadioListTile<int>(
+            dense: true,
+            title: const Text('反推模式（看译文猜读音）'),
+            value: 2,
+            groupValue: _mode,
+            onChanged: (v) => setState(() => _mode = v!),
+          ),
+        ],
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
@@ -528,7 +629,14 @@ class _CountSelectorDialogState extends State<_CountSelectorDialog> {
           onPressed: () {
             final count = int.tryParse(_controller.text);
             if (count != null && count > 0) {
-              Navigator.pop(context, _TrainingConfig(count: count, voiceMode: false));
+              Navigator.pop(
+                context,
+                _TrainingConfig(
+                  count: count,
+                  voiceMode: _mode == 1,
+                  pronunciationMode: _mode == 2,
+                ),
+              );
             }
           },
           child: const Text('开始'),

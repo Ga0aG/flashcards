@@ -23,15 +23,11 @@ class SpacedRepetitionService {
   }
 
   List<Word> selectWordsForTraining(List<Word> allWords, int count) {
-    // 等级1（新词/被重置的词）按创建时间从旧到新全部优先出现
-    final newWords = allWords.where((w) => w.memoryLevel == 1).toList()
-      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-
-    final oldWords = allWords.where((w) => w.memoryLevel != 1).toList();
-    final needOld = (count - newWords.length).clamp(0, oldWords.length);
-    final selectedOld = _weightedRandomSelection(oldWords, needOld);
-
-    return [...newWords, ...selectedOld].take(count).toList();
+    // 所有词一起参与轮盘赌，level=1 权重极高保证大概率被选中
+    final selected = _weightedRandomSelection(allWords, count);
+    // 打乱顺序，避免每次出现顺序固定
+    selected.shuffle(Random());
+    return selected;
   }
 
   List<Word> _weightedRandomSelection(List<Word> words, int count) {
