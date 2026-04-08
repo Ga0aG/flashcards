@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../models/wordbook.dart';
 import '../models/word.dart';
 import '../services/database_service.dart';
@@ -18,6 +19,7 @@ class _TrainingScreenState extends State<TrainingScreen>
   final _dbService = DatabaseService();
   final _srService = SpacedRepetitionService();
   final _tts = TtsService();
+  final _audioPlayer = AudioPlayer();
 
   List<Word> _queue = [];
   int _currentIndex = 0;
@@ -56,6 +58,7 @@ class _TrainingScreenState extends State<TrainingScreen>
   void dispose() {
     _snapController.dispose();
     _tts.stop();
+    _audioPlayer.dispose();
     super.dispose();
   }
 
@@ -205,7 +208,18 @@ class _TrainingScreenState extends State<TrainingScreen>
       _dragOffset = 0;
       _showStep = 0;
       if (_queue.isEmpty) {
-        // 训练完成
+        // 训练完成，播放掌声前1秒
+        _audioPlayer.play(AssetSource('sounds/applause.mp3'));
+        Future.delayed(const Duration(seconds: 1), () async {
+          double vol = 1.0;
+          for (int i = 0; i < 10; i++) {
+            await Future.delayed(const Duration(milliseconds: 50));
+            vol -= 0.1;
+            _audioPlayer.setVolume(vol.clamp(0.0, 1.0));
+          }
+          _audioPlayer.stop();
+          _audioPlayer.setVolume(1.0);
+        });
       } else if (_currentIndex >= _queue.length) {
         _currentIndex = _queue.length - 1;
       }
