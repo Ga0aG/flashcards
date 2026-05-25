@@ -387,7 +387,9 @@ class _TrainingScreenState extends State<TrainingScreen>
               child: Center(
                 child: Text(
                   _pronunciationMode
-                      ? (_showStep == 0 ? '点击查看读音' : '左划记住 / 右划再来')
+                      ? (_showStep == 0
+                          ? '点击查看读音/例句'
+                          : '左划记住 / 右划再来')
                       : (_showStep == 0
                           ? '点击查看注释'
                           : (_showStep == 1 ? '点击查看译文' : '左划记住 / 右划再来')),
@@ -478,7 +480,7 @@ class _TrainingScreenState extends State<TrainingScreen>
     );
   }
 
-  // 反推模式：先显示译文，点击后显示读音/正面
+  // 反推模式：先显示译文，点击后同时显示读音/正面/例句，再点回到译文
   Widget _buildPronunciationCard(Word word) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -510,6 +512,14 @@ class _TrainingScreenState extends State<TrainingScreen>
             ),
             textAlign: TextAlign.center,
           ),
+          if (word.notes.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              word.notes,
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+              textAlign: TextAlign.center,
+            ),
+          ],
         ],
       ],
     );
