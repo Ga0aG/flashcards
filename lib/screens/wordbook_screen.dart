@@ -81,6 +81,8 @@ class _WordBookScreenState extends State<WordBookScreen> {
   bool _searching = false;
   String _searchQuery = '';
   final _searchController = TextEditingController();
+  int _pageSize = 20;
+  int _currentPage = 0; // 0-based
 
   @override
   void initState() {
@@ -97,14 +99,24 @@ class _WordBookScreenState extends State<WordBookScreen> {
   Future<void> _loadWords() async {
     final words = await _dbService.getWordsByBookId(widget.wordBook.id);
     final tags = await _dbService.getAllTags(widget.wordBook.id);
+    final pageSizeStr = await _dbService.getSetting('page_size');
     setState(() {
       _words = words;
       _allTags = tags;
+      _pageSize = int.tryParse(pageSizeStr ?? '20') ?? 20;
       // 如果当前筛选标签已不存在，则重置
       if (_selectedTag != null && !tags.contains(_selectedTag)) {
         _selectedTag = null;
       }
+      // 当前页越界时夹回最后一页
+      final maxPage = _maxPageFor(_filteredWords.length);
+      if (_currentPage > maxPage) _currentPage = maxPage;
     });
+  }
+
+  int _maxPageFor(int total) {
+    if (total <= 0) return 0;
+    return ((total - 1) ~/ _pageSize);
   }
 
   List<Word> get _filteredWords {
@@ -126,6 +138,12 @@ class _WordBookScreenState extends State<WordBookScreen> {
   @override
   Widget build(BuildContext context) {
     final displayWords = _filteredWords;
+    final total = displayWords.length;
+    final totalPages = total == 0 ? 1 : (total + _pageSize - 1) ~/ _pageSize;
+    final pageIndex = _currentPage.clamp(0, totalPages - 1);
+    final start = pageIndex * _pageSize;
+    final end = (start + _pageSize) > total ? total : (start + _pageSize);
+    final pageWords = total == 0 ? <Word>[] : displayWords.sublist(start, end);
     return Scaffold(
       appBar: AppBar(
         title: _searching
@@ -138,7 +156,10 @@ class _WordBookScreenState extends State<WordBookScreen> {
                   hintStyle: TextStyle(color: Colors.white70),
                 ),
                 style: const TextStyle(color: Colors.white),
-                onChanged: (v) => setState(() => _searchQuery = v),
+                onChanged: (v) => setState(() {
+                  _searchQuery = v;
+                  _currentPage = 0;
+                }),
               )
             : Text('${langFlag(widget.wordBook.language)} ${langName(widget.wordBook.language)}'),
         actions: [
@@ -151,6 +172,7 @@ class _WordBookScreenState extends State<WordBookScreen> {
                   _searching = false;
                   _searchQuery = '';
                   _searchController.clear();
+                  _currentPage = 0;
                 });
               },
             )
@@ -223,7 +245,10 @@ class _WordBookScreenState extends State<WordBookScreen> {
                           child: Text(tag),
                         )),
                   ],
-                  onChanged: (value) => setState(() => _selectedTag = value),
+                  onChanged: (value) => setState(() {
+                    _selectedTag = value;
+                    _currentPage = 0;
+                  }),
                 ),
               ],
             ),
@@ -236,7 +261,7 @@ class _WordBookScreenState extends State<WordBookScreen> {
                         : (_words.isEmpty ? '还没有单词，点击右上角 + 添加' : '该标签下没有单词')),
                   )
                 : ListView.separated(
-                    itemCount: displayWords.length,
+                    itemCount: pageWords.length,
                     separatorBuilder: (context, index) => const Divider(
                       height: 1,
                       thickness: 0.5,
@@ -244,7 +269,7 @@ class _WordBookScreenState extends State<WordBookScreen> {
                       endIndent: 16,
                     ),
                     itemBuilder: (context, index) {
-                      final word = displayWords[index];
+                      final word = pageWords[index];
                       return ListTile(
                         title: Text(word.front),
                         subtitle: Column(
@@ -316,6 +341,42 @@ class _WordBookScreenState extends State<WordBookScreen> {
                     },
                   ),
           ),
+          if (total > 0)
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      '共 $total 个单词',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.chevron_left),
+                          tooltip: '上一页',
+                          onPressed: pageIndex > 0
+                              ? () => setState(() => _currentPage = pageIndex - 1)
+                              : null,
+                        ),
+                        Text('${pageIndex + 1} / $totalPages'),
+                        IconButton(
+                          icon: const Icon(Icons.chevron_right),
+                          tooltip: '下一页',
+                          onPressed: pageIndex < totalPages - 1
+                              ? () => setState(() => _currentPage = pageIndex + 1)
+                              : null,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     );

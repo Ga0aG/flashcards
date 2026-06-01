@@ -14,6 +14,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _dbService = DatabaseService();
   String _mainLanguage = 'zh-CN';
   int _defaultReviewCount = 20;
+  int _pageSize = 20;
 
   @override
   void initState() {
@@ -24,15 +25,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     final lang = await _dbService.getSetting('main_language');
     final count = await _dbService.getSetting('default_review_count');
+    final pageSize = await _dbService.getSetting('page_size');
     setState(() {
       _mainLanguage = lang ?? 'zh-CN';
       _defaultReviewCount = int.tryParse(count ?? '20') ?? 20;
+      _pageSize = int.tryParse(pageSize ?? '20') ?? 20;
     });
   }
 
   Future<void> _saveSettings() async {
     await _dbService.setSetting('main_language', _mainLanguage);
     await _dbService.setSetting('default_review_count', _defaultReviewCount.toString());
+    await _dbService.setSetting('page_size', _pageSize.toString());
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('设置已保存')));
     }
@@ -180,6 +184,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
               );
               if (result != null && result > 0) {
                 setState(() => _defaultReviewCount = result);
+                await _saveSettings();
+              }
+            },
+          ),
+          ListTile(
+            title: const Text('每页单词数'),
+            subtitle: Text('$_pageSize 个单词'),
+            trailing: const Icon(Icons.arrow_forward_ios),
+            onTap: () async {
+              final controller = TextEditingController(text: _pageSize.toString());
+              final result = await showDialog<int>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('设置每页单词数'),
+                  content: TextField(
+                    controller: controller,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(hintText: '输入数量'),
+                  ),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, int.tryParse(controller.text)),
+                      child: const Text('确定'),
+                    ),
+                  ],
+                ),
+              );
+              if (result != null && result > 0) {
+                setState(() => _pageSize = result);
                 await _saveSettings();
               }
             },
