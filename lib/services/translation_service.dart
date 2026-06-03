@@ -206,4 +206,31 @@ class TranslationService {
     // 降级到 MyMemory
     return await translate(text, fromCode, toCode);
   }
+
+  /// 给日语句子叠加 furigana：把含汉字的词替换成 "漢字(かんじ)"。
+  /// 调同源 /api/furigana（kuroshiro+kuromoji 在 Vercel Function 上跑）。
+  /// 没有汉字、本地开发没有该端点、或网络失败时，原样返回 [text]。
+  Future<String> addFuriganaJa(String text) async {
+    if (text.trim().isEmpty) return text;
+    // 没汉字直接跳过，免一次网络
+    final hasKanji = RegExp(r'[一-鿿]|[㐀-䶿]').hasMatch(text);
+    if (!hasKanji) return text;
+    try {
+      final resp = await http
+          .post(
+            Uri.parse('/api/furigana'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({'text': text}),
+          )
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        final data = json.decode(resp.body);
+        final out = data['text'] as String?;
+        if (out != null && out.isNotEmpty) return out;
+      }
+    } catch (e) {
+      // 本地 dev 没这个端点会落到这里，原样返回
+    }
+    return text;
+  }
 }

@@ -57,13 +57,18 @@ class _ScenarioChatScreenState extends State<ScenarioChatScreen> {
     if (s == null || index < 0 || index >= s.sentences.length) return;
     setState(() => _translatingIndices.add(index));
     try {
-      final result = await _translation.translateSentence(
+      var result = await _translation.translateSentence(
         s.sentences[index].sourceText,
         'zh',
         widget.targetLang,
       );
       if (!mounted) return;
       if (result != null && result.isNotEmpty) {
+        // 仅日语：在翻译结果上叠加 furigana
+        if (widget.targetLang == 'ja') {
+          result = await _translation.addFuriganaJa(result);
+          if (!mounted) return;
+        }
         s.sentences[index].translations[widget.targetLang] = result;
         await _db.updateScenario(s);
       }
