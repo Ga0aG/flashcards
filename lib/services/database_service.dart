@@ -4,6 +4,7 @@ import 'package:localstorage/localstorage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/wordbook.dart';
 import '../models/word.dart';
+import '../models/scenario.dart';
 import 'spaced_repetition.dart';
 
 class DatabaseService {
@@ -22,6 +23,8 @@ class DatabaseService {
       _uid != null ? _firestore.collection('users/$_uid/wordbooks') : null;
   CollectionReference? get _wordsRef =>
       _uid != null ? _firestore.collection('users/$_uid/words') : null;
+  CollectionReference? get _scenariosRef =>
+      _uid != null ? _firestore.collection('users/$_uid/scenarios') : null;
   DocumentReference? get _settingsRef =>
       _uid != null ? _firestore.collection('users').doc(_uid).collection('meta').doc('settings') : null;
 
@@ -42,6 +45,9 @@ class DatabaseService {
       }
       if (_storage.getItem('words') == null) {
         await _save('words', []);
+      }
+      if (_storage.getItem('scenarios') == null) {
+        await _save('scenarios', []);
       }
     }
   }
@@ -362,6 +368,82 @@ class DatabaseService {
     if (customTags.remove(tag)) {
       await _save(_customTagsKey(bookId), customTags);
     }
+  }
+
+  // ─── Scenario CRUD ────────────────────────────────────────────────
+
+  Future<List<Scenario>> getAllScenarios() async {
+    await _init();
+    List<dynamic> list = _storage.getItem('scenarios') ?? [];
+    final scenarios = list
+        .map((m) => Scenario.fromMap(Map<String, dynamic>.from(m as Map)))
+        .toList();
+    scenarios.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return scenarios;
+  }
+
+  Future<Scenario?> getScenario(String id) async {
+    await _init();
+    List<dynamic> list = _storage.getItem('scenarios') ?? [];
+    for (final m in list) {
+      if (m['id'] == id) {
+        return Scenario.fromMap(Map<String, dynamic>.from(m as Map));
+      }
+    }
+    return null;
+  }
+
+  Future<void> insertScenario(Scenario scenario) async {
+    await _init();
+    List<dynamic> list = _storage.getItem('scenarios') ?? [];
+    list.add(scenario.toMap());
+    await _save('scenarios', list);
+    _scenariosRef?.doc(scenario.id).set(scenario.toFirestoreMap());
+  }
+
+  Future<void> updateScenario(Scenario scenario) async {
+    await _init();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    scenario.updatedAt = now;
+    List<dynamic> list = _storage.getItem('scenarios') ?? [];
+    for (int i = 0; i < list.length; i++) {
+      if (list[i]['id'] == scenario.id) {
+        list[i] = scenario.toMap();
+        break;
+      }
+    }
+    await _save('scenarios', list);
+    _scenariosRef?.doc(scenario.id).set(scenario.toFirestoreMap());
+  }
+
+  Future<void> deleteScenario(String id) async {
+    await _init();
+    List<dynamic> list = _storage.getItem('scenarios') ?? [];
+    list.removeWhere((s) => s['id'] == id);
+    await _save('scenarios', list);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _scenariosRef?.doc(id).update({'deleted': true, 'updated_at': now});
+  }
+
+  // 供 SyncService 使用：仅删除本地，不触发 Firestore
+  Future<void> deleteScenarioLocal(String id) async {
+    await _init();
+    List<dynamic> list = _storage.getItem('scenarios') ?? [];
+    list.removeWhere((s) => s['id'] == id);
+    await _save('scenarios', list);
+  }
+
+  // 供 SyncService 使用：upsert
+  Future<void> upsertScenario(Scenario scenario) async {
+    await _init();
+    List<dynamic> list = _storage.getItem('scenarios') ?? [];
+    final idx = list.indexWhere((s) => s['id'] == scenario.id);
+    if (idx >= 0) {
+      list[idx] = scenario.toMap();
+    } else {
+      list.add(scenario.toMap());
+    }
+    await _save('scenarios', list);
   }
 
   // ─── Settings（用 SharedPreferences，在 Web 上更可靠）────────────

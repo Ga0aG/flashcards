@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/word.dart';
 import '../models/wordbook.dart';
+import '../models/scenario.dart';
 import 'database_service.dart';
 
 class SyncService {
@@ -12,6 +13,8 @@ class SyncService {
       _firestore.collection('users/$uid/wordbooks');
   CollectionReference _wordsRef(String uid) =>
       _firestore.collection('users/$uid/words');
+  CollectionReference _scenariosRef(String uid) =>
+      _firestore.collection('users/$uid/scenarios');
 
   Future<void> migrateIfNeeded(String uid) async {
     final prefs = await SharedPreferences.getInstance();
@@ -24,28 +27,32 @@ class SyncService {
     for (final book in localBooks) {
       localWords.addAll(await _db.getWordsByBookId(book.id));
     }
+    final localScenarios = await _db.getAllScenarios();
 
-    if (localBooks.isEmpty && localWords.isEmpty) {
+    if (localBooks.isEmpty && localWords.isEmpty && localScenarios.isEmpty) {
       await prefs.setBool(key, true);
       return;
     }
 
     // 检查云端是否已有数据
     final cloudBooksSnap = await _wordbooksRef(uid).limit(1).get();
-    final cloudHasData = cloudBooksSnap.docs.isNotEmpty;
+    final cloudScenariosSnap = await _scenariosRef(uid).limit(1).get();
+    final cloudHasData =
+        cloudBooksSnap.docs.isNotEmpty || cloudScenariosSnap.docs.isNotEmpty;
 
     if (cloudHasData) {
       // 云端已有数据（换设备登录），合并
-      await _mergeToCloud(uid, localBooks, localWords);
+      await _mergeToCloud(uid, localBooks, localWords, localScenarios);
     } else {
       // 首次登录，直接上传
-      await _uploadAll(uid, localBooks, localWords);
+      await _uploadAll(uid, localBooks, localWords, localScenarios);
     }
 
     await prefs.setBool(key, true);
   }
 
-  Future<void> _uploadAll(String uid, List<WordBook> books, List<Word> words) async {
+  Future<void> _uploadAll(String uid, List<WordBook> books, List<Word> words,
+      List<Scenario> scenarios) async {
     const batchSize = 400;
     var batch = _firestore.batch();
     int count = 0;
@@ -68,16 +75,31 @@ class SyncService {
         count = 0;
       }
     }
+    for (final s in scenarios) {
+      batch.set(_scenariosRef(uid).doc(s.id), s.toFirestoreMap());
+      count++;
+      if (count >= batchSize) {
+        await batch.commit();
+        batch = _firestore.batch();
+        count = 0;
+      }
+    }
     if (count > 0) await batch.commit();
   }
 
-  Future<void> _mergeToCloud(String uid, List<WordBook> localBooks, List<Word> localWords) async {
+  Future<void> _mergeToCloud(String uid, List<WordBook> localBooks,
+      List<Word> localWords, List<Scenario> localScenarios) async {
     // 获取云端所有 ID 和 updatedAt
     final cloudBooksSnap = await _wordbooksRef(uid).get();
     final cloudBookMap = {for (final d in cloudBooksSnap.docs) d.id: d.data() as Map<String, dynamic>};
 
     final cloudWordsSnap = await _wordsRef(uid).get();
     final cloudWordMap = {for (final d in cloudWordsSnap.docs) d.id: d.data() as Map<String, dynamic>};
+
+    final cloudScenariosSnap = await _scenariosRef(uid).get();
+    final cloudScenarioMap = {
+      for (final d in cloudScenariosSnap.docs) d.id: d.data() as Map<String, dynamic>
+    };
 
     var batch = _firestore.batch();
     int count = 0;
@@ -103,6 +125,14 @@ class SyncService {
       final localUpdatedAt = word.lastCorrectAt > 0 ? word.lastCorrectAt : word.createdAt;
       if (cloud == null || (cloud['updated_at'] as int? ?? 0) < localUpdatedAt) {
         batch.set(_wordsRef(uid).doc(word.id), _wordToFirestore(word));
+        count++;
+        await commitIfNeeded();
+      }
+    }
+    for (final s in localScenarios) {
+      final cloud = cloudScenarioMap[s.id];
+      if (cloud == null || (cloud['updated_at'] as int? ?? 0) < s.updatedAt) {
+        batch.set(_scenariosRef(uid).doc(s.id), s.toFirestoreMap());
         count++;
         await commitIfNeeded();
       }
@@ -180,6 +210,33 @@ class SyncService {
     for (final local in allLocalWords) {
       if (!cloudWordIds.contains(local.id)) {
         await _db.deleteWordLocal(local.id);
+      }
+    }
+
+    // 拉取场景
+    final scenariosSnap = await _scenariosRef(uid)
+        .where('deleted', isEqualTo: false)
+        .get();
+    final localScenarios = await _db.getAllScenarios();
+    final localScenarioMap = {for (final s in localScenarios) s.id: s};
+    for (final doc in scenariosSnap.docs) {
+      final data = doc.data() as Map<String, dynamic>;
+      final cloud = Scenario.fromMap({
+        'id': doc.id,
+        'name': data['name'] ?? '',
+        'created_at': data['created_at'] ?? 0,
+        'updated_at': data['updated_at'] ?? 0,
+        'sentences': data['sentences'] ?? const [],
+      });
+      final local = localScenarioMap[doc.id];
+      if (local == null || local.updatedAt < cloud.updatedAt) {
+        await _db.upsertScenario(cloud);
+      }
+    }
+    final cloudScenarioIds = scenariosSnap.docs.map((d) => d.id).toSet();
+    for (final local in localScenarios) {
+      if (!cloudScenarioIds.contains(local.id)) {
+        await _db.deleteScenarioLocal(local.id);
       }
     }
   }

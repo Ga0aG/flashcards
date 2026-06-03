@@ -4,21 +4,11 @@ import 'package:uuid/uuid.dart';
 import '../models/wordbook.dart';
 import '../providers/auth_provider.dart';
 import '../services/database_service.dart';
+import '../utils/languages.dart';
 import 'wordbook_screen.dart';
 import 'training_screen.dart';
 import 'settings_screen.dart';
-
-// Supported languages: code -> (flag emoji, display name)
-const _languages = {
-  'ja': ('🇯🇵', '日语'),
-  'en': ('🇺🇸', '英语'),
-  'zh': ('🇨🇳', '汉语'),
-  'it': ('🇮🇹', '意大利语'),
-  'es': ('🇪🇸', '西班牙语'),
-};
-
-String langFlag(String code) => _languages[code]?.$1 ?? '🌐';
-String langName(String code) => _languages[code]?.$2 ?? code;
+import 'scenario_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -28,6 +18,50 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  int _currentTab = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_currentTab == 0 ? '单词本' : '场景本'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const SettingsScreen()),
+            ),
+          ),
+        ],
+      ),
+      body: IndexedStack(
+        index: _currentTab,
+        children: const [
+          _WordbookTab(),
+          ScenarioListScreen(),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _currentTab,
+        onDestinationSelected: (i) => setState(() => _currentTab = i),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.menu_book), label: '单词本'),
+          NavigationDestination(icon: Icon(Icons.chat_bubble_outline), label: '场景本'),
+        ],
+      ),
+    );
+  }
+}
+
+class _WordbookTab extends StatefulWidget {
+  const _WordbookTab();
+
+  @override
+  State<_WordbookTab> createState() => _WordbookTabState();
+}
+
+class _WordbookTabState extends State<_WordbookTab> {
   final _dbService = DatabaseService();
   List<WordBook> _wordbooks = [];
   bool _wasSyncing = false;
@@ -69,7 +103,7 @@ class _HomeScreenState extends State<HomeScreen> {
             title: const Text('选择学习语言'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
-              children: _languages.entries.map((entry) {
+              children: supportedLanguages.entries.map((entry) {
                 final code = entry.key;
                 final flag = entry.value.$1;
                 final name = entry.value.$2;
@@ -111,15 +145,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('单词本'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen())),
-          ),
-        ],
-      ),
       body: ListView.builder(
         itemCount: _wordbooks.length,
         itemBuilder: (context, index) {

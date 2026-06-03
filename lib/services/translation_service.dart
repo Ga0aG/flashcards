@@ -171,4 +171,39 @@ class TranslationService {
     }
     return null;
   }
+
+  /// 句子翻译：Lingva 主，多镜像逐个尝试，失败时降级到 MyMemory。
+  /// 总耗时约 2s 内（每个镜像 2s 超时）。
+  Future<String?> translateSentence(String text, String fromCode, String toCode) async {
+    final src = fromCode.split('-').first;
+    final tgt = toCode.split('-').first;
+    if (text.trim().isEmpty || src == tgt) return null;
+
+    const lingvaHosts = [
+      'lingva.ml',
+      'lingva.lunar.icu',
+      'translate.plausibility.cloud',
+    ];
+    const lingvaTimeout = Duration(seconds: 2);
+
+    for (final host in lingvaHosts) {
+      try {
+        final uri = Uri.parse(
+          'https://$host/api/v1/$src/$tgt/${Uri.encodeComponent(text)}',
+        );
+        final resp = await http.get(uri).timeout(lingvaTimeout);
+        if (resp.statusCode != 200) continue;
+        final data = json.decode(resp.body);
+        final translated = data['translation'] as String?;
+        if (translated != null && translated.trim().isNotEmpty && translated != text) {
+          return translated;
+        }
+      } catch (e) {
+        // 静默尝试下一个镜像
+      }
+    }
+
+    // 降级到 MyMemory
+    return await translate(text, fromCode, toCode);
+  }
 }

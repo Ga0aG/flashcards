@@ -7,7 +7,7 @@ import 'add_word_screen.dart';
 import 'edit_word_screen.dart';
 import 'training_screen.dart';
 import 'tag_management_screen.dart';
-import 'home_screen.dart' show langFlag, langName;
+import '../utils/languages.dart';
 
 // memoryLevel 值: 1,2,4,7,15,30 → 索引 0-5
 int _memoryLevelIndex(int level) {
