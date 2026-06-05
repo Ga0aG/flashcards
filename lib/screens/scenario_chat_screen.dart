@@ -177,6 +177,21 @@ class _ScenarioChatScreenState extends State<ScenarioChatScreen> {
     }
   }
 
+  Future<void> _moveSentence(int index, int delta) async {
+    final s = _scenario;
+    if (s == null) return;
+    final newIndex = index + delta;
+    if (newIndex < 0 || newIndex >= s.sentences.length) return;
+    final sentence = s.sentences.removeAt(index);
+    s.sentences.insert(newIndex, sentence);
+    await _db.updateScenario(s);
+    if (mounted) {
+      setState(() {
+        _expandedIndex = newIndex;
+      });
+    }
+  }
+
   Widget _buildBubble(int index, ScenarioSentence sentence) {
     final isLeft = sentence.side == 'left';
     final translation = sentence.translations[widget.targetLang];
@@ -256,6 +271,20 @@ class _ScenarioChatScreenState extends State<ScenarioChatScreen> {
             icon: const Icon(Icons.edit),
             color: Theme.of(context).colorScheme.primary,
             onPressed: () => _editSentence(index),
+          ),
+          IconButton(
+            tooltip: '上移',
+            icon: const Icon(Icons.arrow_upward),
+            color: Colors.grey.shade700,
+            onPressed: index > 0 ? () => _moveSentence(index, -1) : null,
+          ),
+          IconButton(
+            tooltip: '下移',
+            icon: const Icon(Icons.arrow_downward),
+            color: Colors.grey.shade700,
+            onPressed: index < (_scenario?.sentences.length ?? 0) - 1
+                ? () => _moveSentence(index, 1)
+                : null,
           ),
           IconButton(
             tooltip: '删除',
