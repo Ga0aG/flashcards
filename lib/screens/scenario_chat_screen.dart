@@ -192,6 +192,15 @@ class _ScenarioChatScreenState extends State<ScenarioChatScreen> {
     }
   }
 
+  Future<void> _swapSide(int index) async {
+    final s = _scenario;
+    if (s == null || index < 0 || index >= s.sentences.length) return;
+    final sentence = s.sentences[index];
+    sentence.side = sentence.side == 'left' ? 'right' : 'left';
+    await _db.updateScenario(s);
+    if (mounted) setState(() {});
+  }
+
   Widget _buildBubble(int index, ScenarioSentence sentence) {
     final isLeft = sentence.side == 'left';
     final translation = sentence.translations[widget.targetLang];
@@ -285,6 +294,12 @@ class _ScenarioChatScreenState extends State<ScenarioChatScreen> {
             onPressed: index < (_scenario?.sentences.length ?? 0) - 1
                 ? () => _moveSentence(index, 1)
                 : null,
+          ),
+          IconButton(
+            tooltip: '互换左右',
+            icon: const Icon(Icons.swap_horiz),
+            color: Colors.grey.shade700,
+            onPressed: () => _swapSide(index),
           ),
           IconButton(
             tooltip: '删除',
