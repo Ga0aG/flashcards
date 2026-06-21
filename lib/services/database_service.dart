@@ -1,452 +1,274 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:localstorage/localstorage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/wordbook.dart';
 import '../models/word.dart';
 import '../models/scenario.dart';
 import 'spaced_repetition.dart';
 
+/// Firestore 为主存储的数据服务。
+/// - 所有 CRUD 直接读写 Firestore（SDK 自带 IndexedDB 离线缓存）
+/// - 设置项（Settings）继续放 SharedPreferences，本地优先
+/// - 未登录时所有方法抛 [StateError]，由 UI 层拦截在登录页面
 class DatabaseService {
   // 单例
   DatabaseService._internal();
   static final DatabaseService _instance = DatabaseService._internal();
   factory DatabaseService() => _instance;
 
-  final LocalStorage _storage = LocalStorage('flashcards.json');
-  bool _initialized = false;
-
-  // Firestore 引用（登录后由 AuthProvider 注入）
   String? _uid;
   FirebaseFirestore get _firestore => FirebaseFirestore.instance;
-  CollectionReference? get _wordbooksRef =>
-      _uid != null ? _firestore.collection('users/$_uid/wordbooks') : null;
-  CollectionReference? get _wordsRef =>
-      _uid != null ? _firestore.collection('users/$_uid/words') : null;
-  CollectionReference? get _scenariosRef =>
-      _uid != null ? _firestore.collection('users/$_uid/scenarios') : null;
-  DocumentReference? get _settingsRef =>
-      _uid != null ? _firestore.collection('users').doc(_uid).collection('meta').doc('settings') : null;
+
+  CollectionReference<Map<String, dynamic>> get _wordbooksRef =>
+      _firestore.collection('users/${_requireUid()}/wordbooks');
+  CollectionReference<Map<String, dynamic>> get _wordsRef =>
+      _firestore.collection('users/${_requireUid()}/words');
+  CollectionReference<Map<String, dynamic>> get _scenariosRef =>
+      _firestore.collection('users/${_requireUid()}/scenarios');
+  DocumentReference<Map<String, dynamic>> get _settingsRef => _firestore
+      .collection('users')
+      .doc(_requireUid())
+      .collection('meta')
+      .doc('settings');
+
+  String _requireUid() {
+    final uid = _uid;
+    if (uid == null) {
+      throw StateError('未登录，无法访问数据');
+    }
+    return uid;
+  }
+
+  bool get isLoggedIn => _uid != null;
 
   void setFirestoreUser(String? uid) {
     _uid = uid;
   }
 
-  Future<void> _save(String key, dynamic value) async {
-    await _storage.setItem(key, value);
-  }
-
-  Future<void> _init() async {
-    if (!_initialized) {
-      await _storage.ready;
-      _initialized = true;
-      if (_storage.getItem('wordbooks') == null) {
-        await _save('wordbooks', []);
-      }
-      if (_storage.getItem('words') == null) {
-        await _save('words', []);
-      }
-      if (_storage.getItem('scenarios') == null) {
-        await _save('scenarios', []);
-      }
-    }
-  }
-
   // ─── WordBook CRUD ────────────────────────────────────────────────
 
   Future<void> insertWordBook(WordBook wordbook) async {
-    await _init();
-    List<dynamic> books = _storage.getItem('wordbooks') ?? [];
-    books.add(wordbook.toMap());
-    await _save('wordbooks', books);
-    _wordbooksRef?.doc(wordbook.id).set(wordbook.toFirestoreMap());
+    await _wordbooksRef.doc(wordbook.id).set(wordbook.toFirestoreMap());
   }
 
   Future<List<WordBook>> getAllWordBooks() async {
-    await _init();
-    List<dynamic> books = _storage.getItem('wordbooks') ?? [];
-    return books.map((map) => WordBook.fromMap(Map<String, dynamic>.from(map))).toList();
+    final snap = await _wordbooksRef
+        .where('deleted', isEqualTo: false)
+        .orderBy('created_at', descending: true)
+        .get();
+    return snap.docs
+        .map((d) => WordBook.fromFirestoreMap({'id': d.id, ...d.data()}))
+        .toList();
   }
 
   Future<void> deleteWordBook(String id) async {
-    await _init();
-    List<dynamic> books = _storage.getItem('wordbooks') ?? [];
-    books.removeWhere((b) => b['id'] == id);
-    await _save('wordbooks', books);
-
-    List<dynamic> words = _storage.getItem('words') ?? [];
-    words.removeWhere((w) => w['wordbook_id'] == id);
-    await _save('words', words);
-
-    // Firestore 软删除
     final now = DateTime.now().millisecondsSinceEpoch;
-    _wordbooksRef?.doc(id).update({'deleted': true, 'updated_at': now});
+    final batch = _firestore.batch();
+    batch.update(_wordbooksRef.doc(id), {'deleted': true, 'updated_at': now});
     // 级联软删除该单词本下的所有单词
-    _wordsRef?.where('wordbook_id', isEqualTo: id).get().then((snap) {
-      for (final doc in snap.docs) {
-        doc.reference.update({'deleted': true, 'updated_at': now});
-      }
-    });
-  }
-
-  // 供 SyncService 使用：仅删除本地，不触发 Firestore
-  Future<void> deleteWordBookLocal(String id) async {
-    await _init();
-    List<dynamic> books = _storage.getItem('wordbooks') ?? [];
-    books.removeWhere((b) => b['id'] == id);
-    await _save('wordbooks', books);
-
-    List<dynamic> words = _storage.getItem('words') ?? [];
-    words.removeWhere((w) => w['wordbook_id'] == id);
-    await _save('words', words);
-  }
-
-  // 供 SyncService 使用：upsert（存在则覆盖，不存在则插入）
-  Future<void> upsertWordBook(WordBook wordbook) async {
-    await _init();
-    List<dynamic> books = _storage.getItem('wordbooks') ?? [];
-    final idx = books.indexWhere((b) => b['id'] == wordbook.id);
-    if (idx >= 0) {
-      books[idx] = wordbook.toMap();
-    } else {
-      books.add(wordbook.toMap());
+    final wordsSnap =
+        await _wordsRef.where('wordbook_id', isEqualTo: id).get();
+    for (final doc in wordsSnap.docs) {
+      batch.update(doc.reference, {'deleted': true, 'updated_at': now});
     }
-    await _save('wordbooks', books);
+    await batch.commit();
   }
 
   // ─── Word CRUD ────────────────────────────────────────────────────
 
   Future<void> insertWord(Word word) async {
-    await _init();
-    List<dynamic> words = _storage.getItem('words') ?? [];
-    words.add(word.toMap());
-    await _save('words', words);
-    _wordsRef?.doc(word.id).set(word.toFirestoreMap());
+    await _wordsRef.doc(word.id).set(word.toFirestoreMap());
   }
 
   Future<List<Word>> getWordsByBookId(String bookId) async {
-    await _init();
-    List<dynamic> words = _storage.getItem('words') ?? [];
-    return words
-        .where((w) => w['wordbook_id'] == bookId)
-        .map((map) => Word.fromMap(Map<String, dynamic>.from(map)))
-        .toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final snap = await _wordsRef
+        .where('wordbook_id', isEqualTo: bookId)
+        .where('deleted', isEqualTo: false)
+        .orderBy('created_at', descending: true)
+        .get();
+    return snap.docs
+        .map((d) => Word.fromFirestoreMap({'id': d.id, ...d.data()}))
+        .toList();
   }
 
   Future<void> updateWordMemoryLevel(String wordId, int newLevel,
       {bool updateCorrectTime = true}) async {
-    await _init();
     final now = DateTime.now().millisecondsSinceEpoch;
-    List<dynamic> words = _storage.getItem('words') ?? [];
-    for (var w in words) {
-      if (w['id'] == wordId) {
-        w['memory_level'] = newLevel;
-        if (updateCorrectTime) {
-          w['last_correct_at'] = now;
-        }
-        break;
-      }
-    }
-    await _save('words', words);
-    _wordsRef?.doc(wordId).update({
+    await _wordsRef.doc(wordId).update({
       'memory_level': newLevel,
       if (updateCorrectTime) 'last_correct_at': now,
       'updated_at': now,
     });
   }
 
+  /// 通过原子事务把"同一天答对则不升级"逻辑放到服务端读取上。
+  /// 之前依赖 localStorage 的同步比较，现在改为 Firestore 事务。
   Future<void> promoteWordMemoryLevel(String wordId) async {
-    await _init();
     final now = DateTime.now();
     final nowMs = now.millisecondsSinceEpoch;
-    List<dynamic> words = _storage.getItem('words') ?? [];
-    int newLevel = 1;
-    for (var w in words) {
-      if (w['id'] == wordId) {
-        final lastCorrectAt = w['last_correct_at'] as int? ?? 0;
-        final lastDay = DateTime.fromMillisecondsSinceEpoch(lastCorrectAt);
-        final sameDay = lastCorrectAt > 0 &&
-            lastDay.year == now.year &&
-            lastDay.month == now.month &&
-            lastDay.day == now.day;
-        if (!sameDay) {
-          w['memory_level'] = SpacedRepetitionService.nextLevel(w['memory_level'] as int);
-        }
-        w['last_correct_at'] = nowMs;
-        newLevel = w['memory_level'] as int;
-        break;
-      }
-    }
-    await _save('words', words);
-    _wordsRef?.doc(wordId).update({
-      'memory_level': newLevel,
-      'last_correct_at': nowMs,
-      'updated_at': nowMs,
+    final docRef = _wordsRef.doc(wordId);
+
+    await _firestore.runTransaction((tx) async {
+      final snap = await tx.get(docRef);
+      if (!snap.exists) return;
+      final data = snap.data() as Map<String, dynamic>;
+      final lastCorrectAt = (data['last_correct_at'] as int?) ?? 0;
+      final currentLevel = (data['memory_level'] as int?) ?? 1;
+
+      final lastDay = DateTime.fromMillisecondsSinceEpoch(lastCorrectAt);
+      final sameDay = lastCorrectAt > 0 &&
+          lastDay.year == now.year &&
+          lastDay.month == now.month &&
+          lastDay.day == now.day;
+
+      final newLevel = sameDay
+          ? currentLevel
+          : SpacedRepetitionService.nextLevel(currentLevel);
+
+      tx.update(docRef, {
+        'memory_level': newLevel,
+        'last_correct_at': nowMs,
+        'updated_at': nowMs,
+      });
     });
   }
 
   Future<void> updateWord(Word word) async {
-    await _init();
     final now = DateTime.now().millisecondsSinceEpoch;
-    List<dynamic> words = _storage.getItem('words') ?? [];
-    for (int i = 0; i < words.length; i++) {
-      if (words[i]['id'] == word.id) {
-        words[i] = word.toMap();
-        break;
-      }
-    }
-    await _save('words', words);
     final map = word.toFirestoreMap();
     map['updated_at'] = now;
-    _wordsRef?.doc(word.id).set(map);
+    await _wordsRef.doc(word.id).set(map);
   }
 
   Future<void> deleteWord(String id) async {
-    await _init();
-    List<dynamic> words = _storage.getItem('words') ?? [];
-    words.removeWhere((w) => w['id'] == id);
-    await _save('words', words);
     final now = DateTime.now().millisecondsSinceEpoch;
-    _wordsRef?.doc(id).update({'deleted': true, 'updated_at': now});
-  }
-
-  // 供 SyncService 使用：仅删除本地，不触发 Firestore
-  Future<void> deleteWordLocal(String id) async {
-    await _init();
-    List<dynamic> words = _storage.getItem('words') ?? [];
-    words.removeWhere((w) => w['id'] == id);
-    await _save('words', words);
-  }
-
-  // 供 SyncService 使用：upsert word
-  Future<void> upsertWord(Word word) async {
-    await _init();
-    List<dynamic> words = _storage.getItem('words') ?? [];
-    final idx = words.indexWhere((w) => w['id'] == word.id);
-    if (idx >= 0) {
-      words[idx] = word.toMap();
-    } else {
-      words.add(word.toMap());
-    }
-    await _save('words', words);
-  }
-
-  // 供 SyncService 使用：云端数据合并到本地
-  Future<void> mergeFromCloud(List<WordBook> cloudBooks, List<Word> cloudWords) async {
-    await _init();
-
-    final localBooks = await getAllWordBooks();
-    final localBookMap = {for (final b in localBooks) b.id: b};
-    for (final book in cloudBooks) {
-      final local = localBookMap[book.id];
-      if (local == null || local.updatedAt < book.updatedAt) {
-        await upsertWordBook(book);
-      }
-    }
-
-    // 删除本地有、云端没有（已软删除）的 wordbook
-    final cloudBookIds = cloudBooks.map((b) => b.id).toSet();
-    for (final local in localBooks) {
-      if (!cloudBookIds.contains(local.id)) {
-        await deleteWordBookLocal(local.id);
-      }
-    }
-
-    // 合并 words
-    final allLocalWords = <Word>[];
-    final updatedBooks = await getAllWordBooks();
-    for (final b in updatedBooks) {
-      allLocalWords.addAll(await getWordsByBookId(b.id));
-    }
-    final localWordMap = {for (final w in allLocalWords) w.id: w};
-    for (final word in cloudWords) {
-      final local = localWordMap[word.id];
-      if (local == null || local.lastCorrectAt < word.lastCorrectAt) {
-        await upsertWord(word);
-      }
-    }
-
-    final cloudWordIds = cloudWords.map((w) => w.id).toSet();
-    for (final local in allLocalWords) {
-      if (!cloudWordIds.contains(local.id)) {
-        await deleteWordLocal(local.id);
-      }
-    }
+    await _wordsRef.doc(id).update({'deleted': true, 'updated_at': now});
   }
 
   // ─── Tag operations ───────────────────────────────────────────────
+  // 标签依附在单词上（单词的 tags 数组）。这里只需要在改名/删除时
+  // 批量更新所有相关单词；自定义标签集合单独存在 SharedPreferences。
 
-  String _customTagsKey(String bookId) => 'custom_tags_$bookId';
+  String _customTagsKey(String bookId) => 'custom_tags_${_requireUid()}_$bookId';
 
   Future<List<String>> _getCustomTags(String bookId) async {
-    await _init();
-    final raw = _storage.getItem(_customTagsKey(bookId));
-    if (raw == null) return [];
-    return List<String>.from(raw as List);
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_customTagsKey(bookId)) ?? <String>[];
+  }
+
+  Future<void> _setCustomTags(String bookId, List<String> tags) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_customTagsKey(bookId), tags);
   }
 
   Future<void> insertTag(String bookId, String tag) async {
-    await _init();
     final tags = await _getCustomTags(bookId);
     if (!tags.contains(tag)) {
       tags.add(tag);
       tags.sort();
-      await _save(_customTagsKey(bookId), tags);
+      await _setCustomTags(bookId, tags);
     }
   }
 
   Future<List<String>> getAllTags(String bookId) async {
-    await _init();
-    List<dynamic> words = _storage.getItem('words') ?? [];
     final tags = <String>{};
-    for (var w in words) {
-      if (w['wordbook_id'] == bookId) {
-        final t = w['tags'];
-        final tagStr = t is String ? t : '';
-        for (var tag in tagStr.split(',')) {
-          final trimmed = tag.trim();
-          if (trimmed.isNotEmpty) tags.add(trimmed);
-        }
-      }
+    final snap = await _wordsRef
+        .where('wordbook_id', isEqualTo: bookId)
+        .where('deleted', isEqualTo: false)
+        .get();
+    for (final doc in snap.docs) {
+      final wordTags =
+          (doc.data()['tags'] as List<dynamic>?)?.cast<String>() ?? const [];
+      tags.addAll(wordTags);
     }
-    // 合并预定义标签
     tags.addAll(await _getCustomTags(bookId));
     return tags.toList()..sort();
   }
 
   Future<void> renameTag(String bookId, String oldTag, String newTag) async {
-    await _init();
-    List<dynamic> words = _storage.getItem('words') ?? [];
     final now = DateTime.now().millisecondsSinceEpoch;
-    for (var w in words) {
-      if (w['wordbook_id'] == bookId) {
-        final t = w['tags'];
-        final tagStr = t is String ? t : '';
-        final tagList = tagStr.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-        final idx = tagList.indexOf(oldTag);
-        if (idx != -1) {
-          tagList[idx] = newTag;
-          w['tags'] = tagList.join(',');
-          _wordsRef?.doc(w['id'] as String).update({
-            'tags': tagList,
-            'updated_at': now,
-          });
-        }
+    final snap = await _wordsRef
+        .where('wordbook_id', isEqualTo: bookId)
+        .where('deleted', isEqualTo: false)
+        .get();
+    final batch = _firestore.batch();
+    for (final doc in snap.docs) {
+      final tags =
+          ((doc.data()['tags'] as List<dynamic>?) ?? const []).cast<String>().toList();
+      final idx = tags.indexOf(oldTag);
+      if (idx != -1) {
+        tags[idx] = newTag;
+        batch.update(doc.reference, {'tags': tags, 'updated_at': now});
       }
     }
-    await _save('words', words);
-    // 同步预定义标签
-    final customTags = await _getCustomTags(bookId);
-    final ci = customTags.indexOf(oldTag);
+    await batch.commit();
+
+    // 同步自定义标签
+    final custom = await _getCustomTags(bookId);
+    final ci = custom.indexOf(oldTag);
     if (ci != -1) {
-      customTags[ci] = newTag;
-      customTags.sort();
-      await _save(_customTagsKey(bookId), customTags);
+      custom[ci] = newTag;
+      custom.sort();
+      await _setCustomTags(bookId, custom);
     }
   }
 
   Future<void> deleteTag(String bookId, String tag) async {
-    await _init();
-    List<dynamic> words = _storage.getItem('words') ?? [];
     final now = DateTime.now().millisecondsSinceEpoch;
-    for (var w in words) {
-      if (w['wordbook_id'] == bookId) {
-        final t = w['tags'];
-        final tagStr = t is String ? t : '';
-        final tagList = tagStr.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty && e != tag).toList();
-        w['tags'] = tagList.join(',');
-        _wordsRef?.doc(w['id'] as String).update({
-          'tags': tagList,
-          'updated_at': now,
-        });
+    final snap = await _wordsRef
+        .where('wordbook_id', isEqualTo: bookId)
+        .where('deleted', isEqualTo: false)
+        .get();
+    final batch = _firestore.batch();
+    for (final doc in snap.docs) {
+      final tags =
+          ((doc.data()['tags'] as List<dynamic>?) ?? const []).cast<String>().toList();
+      if (tags.remove(tag)) {
+        batch.update(doc.reference, {'tags': tags, 'updated_at': now});
       }
     }
-    await _save('words', words);
-    // 同步预定义标签
-    final customTags = await _getCustomTags(bookId);
-    if (customTags.remove(tag)) {
-      await _save(_customTagsKey(bookId), customTags);
+    await batch.commit();
+
+    final custom = await _getCustomTags(bookId);
+    if (custom.remove(tag)) {
+      await _setCustomTags(bookId, custom);
     }
   }
 
   // ─── Scenario CRUD ────────────────────────────────────────────────
 
   Future<List<Scenario>> getAllScenarios() async {
-    await _init();
-    List<dynamic> list = _storage.getItem('scenarios') ?? [];
-    final scenarios = list
-        .map((m) => Scenario.fromMap(Map<String, dynamic>.from(m as Map)))
+    final snap = await _scenariosRef
+        .where('deleted', isEqualTo: false)
+        .orderBy('created_at', descending: true)
+        .get();
+    return snap.docs
+        .map((d) => Scenario.fromMap({'id': d.id, ...d.data()}))
         .toList();
-    scenarios.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return scenarios;
   }
 
   Future<Scenario?> getScenario(String id) async {
-    await _init();
-    List<dynamic> list = _storage.getItem('scenarios') ?? [];
-    for (final m in list) {
-      if (m['id'] == id) {
-        return Scenario.fromMap(Map<String, dynamic>.from(m as Map));
-      }
-    }
-    return null;
+    final doc = await _scenariosRef.doc(id).get();
+    if (!doc.exists) return null;
+    return Scenario.fromMap({'id': doc.id, ...doc.data()!});
   }
 
   Future<void> insertScenario(Scenario scenario) async {
-    await _init();
-    List<dynamic> list = _storage.getItem('scenarios') ?? [];
-    list.add(scenario.toMap());
-    await _save('scenarios', list);
-    _scenariosRef?.doc(scenario.id).set(scenario.toFirestoreMap());
+    await _scenariosRef.doc(scenario.id).set(scenario.toFirestoreMap());
   }
 
   Future<void> updateScenario(Scenario scenario) async {
-    await _init();
     final now = DateTime.now().millisecondsSinceEpoch;
     scenario.updatedAt = now;
-    List<dynamic> list = _storage.getItem('scenarios') ?? [];
-    for (int i = 0; i < list.length; i++) {
-      if (list[i]['id'] == scenario.id) {
-        list[i] = scenario.toMap();
-        break;
-      }
-    }
-    await _save('scenarios', list);
-    _scenariosRef?.doc(scenario.id).set(scenario.toFirestoreMap());
+    await _scenariosRef.doc(scenario.id).set(scenario.toFirestoreMap());
   }
 
   Future<void> deleteScenario(String id) async {
-    await _init();
-    List<dynamic> list = _storage.getItem('scenarios') ?? [];
-    list.removeWhere((s) => s['id'] == id);
-    await _save('scenarios', list);
     final now = DateTime.now().millisecondsSinceEpoch;
-    _scenariosRef?.doc(id).update({'deleted': true, 'updated_at': now});
+    await _scenariosRef.doc(id).update({'deleted': true, 'updated_at': now});
   }
 
-  // 供 SyncService 使用：仅删除本地，不触发 Firestore
-  Future<void> deleteScenarioLocal(String id) async {
-    await _init();
-    List<dynamic> list = _storage.getItem('scenarios') ?? [];
-    list.removeWhere((s) => s['id'] == id);
-    await _save('scenarios', list);
-  }
-
-  // 供 SyncService 使用：upsert
-  Future<void> upsertScenario(Scenario scenario) async {
-    await _init();
-    List<dynamic> list = _storage.getItem('scenarios') ?? [];
-    final idx = list.indexWhere((s) => s['id'] == scenario.id);
-    if (idx >= 0) {
-      list[idx] = scenario.toMap();
-    } else {
-      list.add(scenario.toMap());
-    }
-    await _save('scenarios', list);
-  }
-
-  // ─── Settings（用 SharedPreferences，在 Web 上更可靠）────────────
+  // ─── Settings（保留 SharedPreferences，本地优先；登录后镜像到云端）──
 
   Future<String?> getSetting(String key) async {
     final prefs = await SharedPreferences.getInstance();
@@ -458,7 +280,9 @@ class DatabaseService {
   Future<void> setSetting(String key, String value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(key, value);
-    debugPrint('[Settings] setSetting $key = $value, verify = ${prefs.getString(key)}');
-    _settingsRef?.set({key: value}, SetOptions(merge: true));
+    debugPrint('[Settings] setSetting $key = $value');
+    if (_uid != null) {
+      _settingsRef.set({key: value}, SetOptions(merge: true));
+    }
   }
 }
